@@ -68,11 +68,13 @@
       "left: 0",
       "right: 0",
       "bottom: 20px",
-      "display: flex",
+      "display: none",
       "justify-content: center",
       "padding: 0 12px",
       "z-index: 2147483646",
       "pointer-events: none",
+      "user-select: none",
+      "-webkit-user-select: none",
     ].join(";");
 
     const card = document.createElement("div");
@@ -231,10 +233,16 @@
   }
 
   function syncDragDock() {
-    const { root, card, badge, title, subtitle } = ensureDragDock();
+    const refs = dragDockVisible || dragDockRefs?.root?.isConnected ? ensureDragDock() : null;
+    if (!refs) {
+      return;
+    }
+
+    const { root, card, badge, title, subtitle } = refs;
     const isActive = dragDockHoverDepth > 0;
 
     root.setAttribute("aria-hidden", dragDockVisible ? "false" : "true");
+    root.style.display = dragDockVisible ? "flex" : "none";
     card.style.opacity = dragDockVisible ? "1" : "0";
     card.style.transform = dragDockVisible
       ? "translateY(0) scale(1)"
