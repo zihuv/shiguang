@@ -26,52 +26,44 @@ export const THUMBNAIL_WEBP_QUALITY = 85;
 export type ThumbnailStatus = "pending" | "ready" | "failed" | "skipped";
 
 export interface ThumbnailCacheIdentity {
-  contentHash?: string | null;
-  size?: number | null;
-  modifiedAt?: string | null;
+  size: number;
+  modifiedAt: string;
+  maxEdge?: number | null;
 }
 
-export function createThumbnailPathFallbackKey(filePath: string): string {
-  return crypto
-    .createHash("sha256")
-    .update(THUMBNAIL_CACHE_VERSION)
-    .update("\0")
-    .update(filePath)
-    .digest("hex");
+export function normalizeThumbnailMaxEdge(maxEdge?: number | null): number {
+  if (typeof maxEdge === "number" && Number.isFinite(maxEdge) && maxEdge > 0) {
+    return Math.round(maxEdge);
+  }
+  return THUMBNAIL_MAX_EDGE;
 }
 
-export function createThumbnailVersionedFallbackKey(
+export function createThumbnailCacheKey(
   filePath: string,
-  size: number,
-  modifiedAt: string,
+  identity: ThumbnailCacheIdentity,
 ): string {
+  const modifiedAt = identity.modifiedAt.trim();
+  if (!Number.isFinite(identity.size) || identity.size < 0 || !modifiedAt) {
+    throw new Error("Thumbnail cache identity requires file size and modified time");
+  }
+
   return crypto
     .createHash("sha256")
     .update(THUMBNAIL_CACHE_VERSION)
     .update("\0")
     .update(filePath)
     .update("\0")
-    .update(String(size))
+    .update(String(identity.size))
     .update("\0")
     .update(modifiedAt)
+    .update("\0")
+    .update(String(normalizeThumbnailMaxEdge(identity.maxEdge)))
     .digest("hex");
 }
 
 export function resolveThumbnailCacheKey(
   filePath: string,
-  identity?: ThumbnailCacheIdentity | string | null,
+  identity: ThumbnailCacheIdentity,
 ): string {
-  const normalizedContentHash =
-    typeof identity === "string" ? identity.trim() : (identity?.contentHash?.trim() ?? "");
-  if (normalizedContentHash) {
-    return normalizedContentHash;
-  }
-
-  const size = typeof identity === "object" ? identity?.size : null;
-  const modifiedAt = typeof identity === "object" ? (identity?.modifiedAt?.trim() ?? "") : "";
-  if (typeof size === "number" && Number.isFinite(size) && modifiedAt) {
-    return createThumbnailVersionedFallbackKey(filePath, size, modifiedAt);
-  }
-
-  return normalizedContentHash || createThumbnailPathFallbackKey(filePath);
+  return createThumbnailCacheKey(filePath, identity);
 }

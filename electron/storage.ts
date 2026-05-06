@@ -9,6 +9,7 @@ import { isInsideAnyPath, pathHasPrefix } from "./path-utils";
 import {
   getThumbnailGenerationRuntimeForExt,
   normalizeThumbnailExt,
+  normalizeThumbnailMaxEdge,
   resolveThumbnailCacheKey,
   type ThumbnailCacheIdentity,
   THUMBNAIL_MAX_EDGE,
@@ -256,10 +257,10 @@ async function ensurePdfJsModule(): Promise<void> {
   await pdfJsModuleReady;
 }
 
-async function buildImageThumbnailBuffer(filePath: string): Promise<Buffer> {
+async function buildImageThumbnailBuffer(filePath: string, maxEdge: number): Promise<Buffer> {
   return sharp(filePath, { animated: false })
     .rotate()
-    .resize(THUMBNAIL_MAX_EDGE, THUMBNAIL_MAX_EDGE, {
+    .resize(maxEdge, maxEdge, {
       fit: "inside",
       withoutEnlargement: true,
     })
@@ -267,16 +268,16 @@ async function buildImageThumbnailBuffer(filePath: string): Promise<Buffer> {
     .toBuffer();
 }
 
-async function buildPdfThumbnailBuffer(filePath: string): Promise<Buffer> {
+async function buildPdfThumbnailBuffer(filePath: string, maxEdge: number): Promise<Buffer> {
   await ensurePdfJsModule();
   const pdfBuffer = new Uint8Array(await fs.readFile(filePath));
   const renderedPage = await renderPageAsImage(pdfBuffer, 1, {
     canvasImport: () => import("@napi-rs/canvas"),
-    width: THUMBNAIL_MAX_EDGE,
+    width: maxEdge,
   });
   return sharp(Buffer.from(renderedPage))
     .rotate()
-    .resize(THUMBNAIL_MAX_EDGE, THUMBNAIL_MAX_EDGE, {
+    .resize(maxEdge, maxEdge, {
       fit: "inside",
       withoutEnlargement: true,
     })
@@ -284,7 +285,7 @@ async function buildPdfThumbnailBuffer(filePath: string): Promise<Buffer> {
     .toBuffer();
 }
 
-async function buildPsdThumbnailBuffer(filePath: string): Promise<Buffer> {
+async function buildPsdThumbnailBuffer(filePath: string, maxEdge: number): Promise<Buffer> {
   const source = await fs.readFile(filePath);
   const arrayBuffer = source.buffer.slice(source.byteOffset, source.byteOffset + source.byteLength);
   const psd = getPsdParser().parse(arrayBuffer);
@@ -297,7 +298,7 @@ async function buildPsdThumbnailBuffer(filePath: string): Promise<Buffer> {
       channels: 4,
     },
   })
-    .resize(THUMBNAIL_MAX_EDGE, THUMBNAIL_MAX_EDGE, {
+    .resize(maxEdge, maxEdge, {
       fit: "inside",
       withoutEnlargement: true,
     })
@@ -305,21 +306,25 @@ async function buildPsdThumbnailBuffer(filePath: string): Promise<Buffer> {
     .toBuffer();
 }
 
-async function buildThumbnailBuffer(filePath: string, ext: string): Promise<Buffer> {
+async function buildThumbnailBuffer(
+  filePath: string,
+  ext: string,
+  maxEdge: number = THUMBNAIL_MAX_EDGE,
+): Promise<Buffer> {
   const normalizedExt = normalizeThumbnailExt(ext);
   if (normalizedExt === "pdf") {
-    return buildPdfThumbnailBuffer(filePath);
+    return buildPdfThumbnailBuffer(filePath, maxEdge);
   }
   if (normalizedExt === "psd") {
-    return buildPsdThumbnailBuffer(filePath);
+    return buildPsdThumbnailBuffer(filePath, maxEdge);
   }
-  return buildImageThumbnailBuffer(filePath);
+  return buildImageThumbnailBuffer(filePath, maxEdge);
 }
 
 export function getThumbnailCachePath(
   indexPaths: string[],
   filePath: string,
-  identity?: ThumbnailCacheIdentity | string | null,
+  identity: ThumbnailCacheIdentity,
 ): string | null {
   const indexPath = resolveIndexPath(indexPaths, filePath);
   if (!indexPath) {
@@ -333,7 +338,7 @@ export function getThumbnailCachePath(
 export function hasThumbnailCachePath(
   indexPaths: string[],
   filePath: string,
-  identity?: ThumbnailCacheIdentity | string | null,
+  identity: ThumbnailCacheIdentity,
 ): string | null {
   const cachePath = getThumbnailCachePath(indexPaths, filePath, identity);
   if (!cachePath || !fssync.existsSync(cachePath)) {
@@ -347,15 +352,15 @@ export async function getOrCreateThumbnail(
   input: {
     filePath: string;
     ext: string;
-    contentHash?: string | null;
-    size?: number | null;
-    modifiedAt?: string | null;
+    size: number;
+    modifiedAt: string;
+    maxEdge?: number | null;
   },
 ): Promise<string | null> {
   const identity: ThumbnailCacheIdentity = {
-    contentHash: input.contentHash,
     size: input.size,
     modifiedAt: input.modifiedAt,
+    maxEdge: input.maxEdge,
   };
   const thumbnailPath = getThumbnailCachePath(indexPaths, input.filePath, identity);
   if (!thumbnailPath || !canBuildThumbnail(input.ext)) {
@@ -375,7 +380,11 @@ export async function getOrCreateThumbnail(
   const task = fs
     .mkdir(path.dirname(thumbnailPath), { recursive: true })
     .then(async () => {
-      const thumbnailBuffer = await buildThumbnailBuffer(input.filePath, input.ext);
+      const thumbnailBuffer = await buildThumbnailBuffer(
+        input.filePath,
+        input.ext,
+        normalizeThumbnailMaxEdge(input.maxEdge),
+      );
       await fs.writeFile(thumbnailPath, thumbnailBuffer);
       return thumbnailPath;
     })
@@ -398,17 +407,10 @@ export async function getOrCreateThumbnail(
 export async function removeThumbnailForFile(
   indexPaths: string[],
   filePath: string,
-  identity?: ThumbnailCacheIdentity | string | null,
+  identity: ThumbnailCacheIdentity,
 ): Promise<void> {
   const cachePath = getThumbnailCachePath(indexPaths, filePath, identity);
   if (cachePath) {
     await fs.rm(cachePath, { force: true }).catch(() => undefined);
-  }
-
-  if (identity && typeof identity === "object" && !identity.contentHash?.trim()) {
-    const legacyCachePath = getThumbnailCachePath(indexPaths, filePath);
-    if (legacyCachePath && legacyCachePath !== cachePath) {
-      await fs.rm(legacyCachePath, { force: true }).catch(() => undefined);
-    }
   }
 }

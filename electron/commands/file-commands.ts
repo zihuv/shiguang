@@ -62,8 +62,10 @@ export function createFileCommands(
       return null;
     }
     const allowBackgroundRequest = args.allowBackgroundRequest ?? args.allow_background_request;
+    const maxEdge = optionalNumberArg(args, "maxEdge", "max_edge");
     return ensureThumbnailForFile(state, getWindow(), file.id, {
       allowBackgroundRequest: allowBackgroundRequest !== false,
+      maxEdge,
     });
   };
 
@@ -201,17 +203,14 @@ export function createFileCommands(
     get_thumbnail_cache_path: (args) => {
       const filePath = stringArg(args, "filePath", "file_path");
       const file = getFileByPath(state.db, filePath);
-      return getThumbnailCachePath(
-        getIndexPaths(state.db),
-        filePath,
-        file
-          ? {
-              contentHash: file.contentHash,
-              size: file.size,
-              modifiedAt: file.modifiedAt,
-            }
-          : null,
-      );
+      if (!file) {
+        return null;
+      }
+      return getThumbnailCachePath(getIndexPaths(state.db), filePath, {
+        size: file.size,
+        modifiedAt: file.modifiedAt,
+        maxEdge: optionalNumberArg(args, "maxEdge", "max_edge"),
+      });
     },
     get_smart_collection_stats: () => getSmartCollectionStats(state.db),
     touch_file_last_accessed: (args) =>
@@ -226,9 +225,9 @@ export function createFileCommands(
         return null;
       }
       const cachePath = getThumbnailCachePath(getIndexPaths(state.db), filePath, {
-        contentHash: file.contentHash,
         size: file.size,
         modifiedAt: file.modifiedAt,
+        maxEdge: optionalNumberArg(args, "maxEdge", "max_edge"),
       });
       if (!cachePath) return null;
       await ensureDir(path.dirname(cachePath));

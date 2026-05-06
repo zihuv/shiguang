@@ -105,7 +105,6 @@ async function renderGenericFileDragIcon(
 
 async function getFileDragIcon(state: AppState, file: FileRecord): Promise<Electron.NativeImage> {
   const thumbnailPath = hasThumbnailCachePath(getIndexPaths(state.db), file.path, {
-    contentHash: file.contentHash,
     size: file.size,
     modifiedAt: file.modifiedAt,
   });

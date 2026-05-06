@@ -163,7 +163,7 @@ async function getBrowserThumbnailSrc(
   }
 
   const nextThumbnailPromise = buildBrowserDecodedImageDataUrl(path, {
-    targetShortEdge: THUMBNAIL_MAX_EDGE,
+    targetShortEdge: maxEdge,
     quality: THUMBNAIL_BROWSER_OUTPUT_QUALITY,
     outputMimeType: THUMBNAIL_BROWSER_OUTPUT_MIME,
   })

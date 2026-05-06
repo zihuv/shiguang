@@ -44,6 +44,8 @@ type ThumbnailBuildRequestPayload = {
   file_id?: number;
   path?: string;
   ext?: string;
+  maxEdge?: number;
+  max_edge?: number;
   runtime?: string;
 };
 
@@ -86,7 +88,7 @@ async function handleThumbnailBuildRequest(payload?: ThumbnailBuildRequestPayloa
     return;
   }
 
-  await generateRendererThumbnailCache({ path, ext });
+  await generateRendererThumbnailCache({ path, ext }, payload?.maxEdge ?? payload?.max_edge);
 }
 
 function enqueueVisualIndexBrowserDecodeRequest(payload?: VisualIndexBrowserDecodeRequestPayload) {

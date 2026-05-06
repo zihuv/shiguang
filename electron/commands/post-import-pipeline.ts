@@ -67,6 +67,7 @@ export async function ensureThumbnailForFile(
   fileId: number,
   options: {
     allowBackgroundRequest?: boolean;
+    maxEdge?: number | null;
   } = {},
 ): Promise<string | null> {
   const file = getFileById(state.db, fileId);
@@ -85,9 +86,9 @@ export async function ensureThumbnailForFile(
   }
 
   const existingThumbnailPath = hasThumbnailCachePath(getIndexPaths(state.db), file.path, {
-    contentHash: file.contentHash,
     size: file.size,
     modifiedAt: file.modifiedAt,
+    maxEdge: options.maxEdge,
   });
   if (existingThumbnailPath) {
     return existingThumbnailPath;
@@ -101,6 +102,7 @@ export async function ensureThumbnailForFile(
         ext: file.ext,
         reason: thumbnailPlan.reason,
         runtime: thumbnailPlan.runtime,
+        maxEdge: options.maxEdge,
       });
     }
     return null;
@@ -113,9 +115,9 @@ export async function ensureThumbnailForFile(
   const thumbnailPath = await getOrCreateThumbnail(getIndexPaths(state.db), {
     filePath: file.path,
     ext: file.ext,
-    contentHash: file.contentHash,
     size: file.size,
     modifiedAt: file.modifiedAt,
+    maxEdge: options.maxEdge,
   });
 
   if (thumbnailPath) {

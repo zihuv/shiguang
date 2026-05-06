@@ -83,7 +83,6 @@ export function createFolderCommands(state: AppState): Record<string, CommandHan
         }
         for (const file of affectedFiles) {
           await removeThumbnailForFile(getIndexPaths(state.db), file.path, {
-            contentHash: file.contentHash,
             size: file.size,
             modifiedAt: file.modifiedAt,
           });

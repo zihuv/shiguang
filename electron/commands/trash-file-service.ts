@@ -157,7 +157,6 @@ export async function permanentlyDeleteTrashedFolder(
   const affectedFiles = getFilesUnderFolderPath(state.db, folder.path);
   for (const file of affectedFiles) {
     await removeThumbnailForFile(getIndexPaths(state.db), file.path, {
-      contentHash: file.contentHash,
       size: file.size,
       modifiedAt: file.modifiedAt,
     });
@@ -321,7 +320,6 @@ export async function permanentDeleteOneFile(state: AppState, fileId: number): P
   const file = getFileById(state.db, fileId);
   if (!file) return;
   await removeThumbnailForFile(getIndexPaths(state.db), file.path, {
-    contentHash: file.contentHash,
     size: file.size,
     modifiedAt: file.modifiedAt,
   });
