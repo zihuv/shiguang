@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import path from "node:path";
+
+const APP_DATA_PATH = "/Users/test/Library/Application Support";
+const PICTURES_PATH = "/Users/test/Pictures";
 
 const { mockApp } = vi.hoisted(() => ({
   mockApp: {
     isPackaged: false,
     getPath: vi.fn((name: string) => {
-      if (name === "appData") return "/Users/test/Library/Application Support";
-      if (name === "pictures") return "/Users/test/Pictures";
+      if (name === "appData") return APP_DATA_PATH;
+      if (name === "pictures") return PICTURES_PATH;
       return "";
     }),
     setPath: vi.fn(),
@@ -39,38 +43,36 @@ beforeEach(() => {
 
 describe("app environment paths", () => {
   it("uses isolated development user data and default library paths", () => {
-    expect(getDevelopmentUserDataPath()).toBe("/Users/test/Library/Application Support/拾光 Dev");
+    const developmentUserDataPath = path.join(APP_DATA_PATH, "拾光 Dev");
+
+    expect(getDevelopmentUserDataPath()).toBe(developmentUserDataPath);
     expect(getDefaultLibraryDirName()).toBe("shiguang-dev");
-    expect(getDefaultIndexPath()).toBe("/Users/test/Pictures/shiguang-dev");
+    expect(getDefaultIndexPath()).toBe(path.join(PICTURES_PATH, "shiguang-dev"));
 
     configureEnvironmentUserDataPath();
 
-    expect(fssync.mkdirSync).toHaveBeenCalledWith(
-      "/Users/test/Library/Application Support/拾光 Dev",
-      { recursive: true },
-    );
-    expect(mockApp.setPath).toHaveBeenCalledWith(
-      "userData",
-      "/Users/test/Library/Application Support/拾光 Dev",
-    );
+    expect(fssync.mkdirSync).toHaveBeenCalledWith(developmentUserDataPath, { recursive: true });
+    expect(mockApp.setPath).toHaveBeenCalledWith("userData", developmentUserDataPath);
   });
 
   it("uses explicit user data overrides for isolated Electron tests", () => {
-    vi.stubEnv("SHIGUANG_USER_DATA_DIR", "/tmp/shiguang-smoke/user-data");
+    const userDataPath = path.resolve("/tmp/shiguang-smoke/user-data");
+
+    vi.stubEnv("SHIGUANG_USER_DATA_DIR", userDataPath);
 
     configureEnvironmentUserDataPath();
 
-    expect(fssync.mkdirSync).toHaveBeenCalledWith("/tmp/shiguang-smoke/user-data", {
+    expect(fssync.mkdirSync).toHaveBeenCalledWith(userDataPath, {
       recursive: true,
     });
-    expect(mockApp.setPath).toHaveBeenCalledWith("userData", "/tmp/shiguang-smoke/user-data");
+    expect(mockApp.setPath).toHaveBeenCalledWith("userData", userDataPath);
   });
 
   it("keeps packaged builds on production paths", () => {
     mockApp.isPackaged = true;
 
     expect(getDefaultLibraryDirName()).toBe("shiguang");
-    expect(getDefaultIndexPath()).toBe("/Users/test/Pictures/shiguang");
+    expect(getDefaultIndexPath()).toBe(path.join(PICTURES_PATH, "shiguang"));
 
     configureEnvironmentUserDataPath();
 

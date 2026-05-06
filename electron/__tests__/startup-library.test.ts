@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import path from "node:path";
 
 const { mockApp, mockDialog, mockFs, mockStorage } = vi.hoisted(() => ({
   mockApp: {
@@ -55,24 +56,19 @@ beforeEach(() => {
 
 describe("startup library path resolution", () => {
   it("uses explicit index path overrides without opening the startup picker", async () => {
-    vi.stubEnv("SHIGUANG_INDEX_PATH", "/tmp/shiguang-smoke/library");
+    const appDataDir = "/tmp/shiguang-smoke/user-data";
+    const indexPath = path.resolve("/tmp/shiguang-smoke/library");
 
-    await expect(resolveStartupIndexPath("/tmp/shiguang-smoke/user-data")).resolves.toBe(
-      "/tmp/shiguang-smoke/library",
-    );
+    vi.stubEnv("SHIGUANG_INDEX_PATH", indexPath);
 
-    expect(mockFs.mkdir).toHaveBeenCalledWith("/tmp/shiguang-smoke/library", {
+    await expect(resolveStartupIndexPath(appDataDir)).resolves.toBe(indexPath);
+
+    expect(mockFs.mkdir).toHaveBeenCalledWith(indexPath, {
       recursive: true,
     });
-    expect(mockStorage.ensureStorageDirs).toHaveBeenCalledWith("/tmp/shiguang-smoke/library");
-    expect(mockStorage.persistIndexPath).toHaveBeenCalledWith(
-      "/tmp/shiguang-smoke/user-data",
-      "/tmp/shiguang-smoke/library",
-    );
-    expect(mockStorage.rememberRecentIndexPaths).toHaveBeenCalledWith(
-      "/tmp/shiguang-smoke/user-data",
-      ["/tmp/shiguang-smoke/library"],
-    );
+    expect(mockStorage.ensureStorageDirs).toHaveBeenCalledWith(indexPath);
+    expect(mockStorage.persistIndexPath).toHaveBeenCalledWith(appDataDir, indexPath);
+    expect(mockStorage.rememberRecentIndexPaths).toHaveBeenCalledWith(appDataDir, [indexPath]);
     expect(mockStorage.readCurrentIndexPath).not.toHaveBeenCalled();
     expect(mockDialog.showOpenDialog).not.toHaveBeenCalled();
   });
