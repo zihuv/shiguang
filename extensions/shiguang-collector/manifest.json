@@ -18,6 +18,7 @@
       "matches": ["<all_urls>"],
       "js": [
         "content-shared.js",
+        "content-site-metadata.js",
         "content-drag-dock.js",
         "content-panel-style.js",
         "content-panel-utils.js",

@@ -12,8 +12,10 @@
     lastImageUrl: null,
     lastRightClickTarget: null,
     lastSourceUrl: null,
+    lastCollectionPayload: null,
   };
   const sourceUrlResolvers = [];
+  const siteMetadata = globalThis.__shiguangCollectorSiteMetadata;
 
   function ensureToastContainer() {
     let container = document.getElementById(TOAST_CONTAINER_ID);
@@ -134,16 +136,23 @@
   }
 
   async function requestCollectImage(imageUrl, options = {}) {
-    const rememberedSourceUrl = state.lastImageUrl === imageUrl ? state.lastSourceUrl : null;
-    const sourceUrl =
-      options.sourceUrl || rememberedSourceUrl || options.referer || window.location.href;
+    const rememberedPayload = state.lastImageUrl === imageUrl ? state.lastCollectionPayload : null;
+    const collectionPayload =
+      options.collectionPayload ||
+      rememberedPayload ||
+      resolveCollectionPayload(options.target || state.lastRightClickTarget, imageUrl, {
+        sourceUrl: options.sourceUrl,
+        pageUrl: options.referer || window.location.href,
+      });
+    const sourceUrl = collectionPayload?.sourceUrl || options.referer || window.location.href;
 
     const response = await chrome.runtime.sendMessage({
       action: "collectImage",
       payload: {
-        imageUrl,
+        imageUrl: collectionPayload?.imageUrl || imageUrl,
         referer: options.referer || window.location.href,
         sourceUrl,
+        metadata: collectionPayload?.metadata || null,
         missingImageMessage: options.missingImageMessage,
         notifyOnSuccess: options.notifyOnSuccess,
         successMessage: options.successMessage,
@@ -157,6 +166,39 @@
     }
 
     return response;
+  }
+
+  function cleanCollectionMetadata(metadata) {
+    if (!metadata || typeof metadata !== "object") {
+      return null;
+    }
+
+    const cleaned = {
+      title: typeof metadata.title === "string" ? metadata.title.trim() : "",
+      description: typeof metadata.description === "string" ? metadata.description.trim() : "",
+      author: typeof metadata.author === "string" ? metadata.author.trim() : "",
+      authorUrl: typeof metadata.authorUrl === "string" ? metadata.authorUrl.trim() : "",
+      provider: typeof metadata.provider === "string" ? metadata.provider.trim() : "",
+      license: typeof metadata.license === "string" ? metadata.license.trim() : "",
+      canonicalUrl: typeof metadata.canonicalUrl === "string" ? metadata.canonicalUrl.trim() : "",
+      publishedAt: typeof metadata.publishedAt === "string" ? metadata.publishedAt.trim() : "",
+      location: typeof metadata.location === "string" ? metadata.location.trim() : "",
+      camera: typeof metadata.camera === "string" ? metadata.camera.trim() : "",
+      width: Number.isFinite(metadata.width) ? metadata.width : 0,
+      height: Number.isFinite(metadata.height) ? metadata.height : 0,
+      tags: Array.isArray(metadata.tags)
+        ? metadata.tags
+            .map((tag) => (typeof tag === "string" ? tag.trim() : ""))
+            .filter(Boolean)
+            .slice(0, 12)
+        : [],
+    };
+
+    return Object.values(cleaned).some((value) =>
+      Array.isArray(value) ? value.length > 0 : Boolean(value),
+    )
+      ? cleaned
+      : null;
   }
 
   function normalizeImageUrl(url) {
@@ -309,6 +351,33 @@
     return null;
   }
 
+  function resolveCollectionPayload(target, imageUrl, options = {}) {
+    const normalizedImageUrl = normalizeImageUrl(imageUrl);
+    if (!normalizedImageUrl) {
+      return null;
+    }
+
+    const sourceUrl = options.sourceUrl
+      ? normalizeImageUrl(options.sourceUrl)
+      : resolveSourceUrlFromElement(target, normalizedImageUrl) || null;
+    const resolved = siteMetadata?.resolveCollectionPayload
+      ? siteMetadata.resolveCollectionPayload({
+          target,
+          imageUrl: normalizedImageUrl,
+          pageUrl: options.pageUrl || window.location.href,
+          sourceUrl,
+        })
+      : null;
+
+    const payload = {
+      imageUrl: normalizeImageUrl(resolved?.imageUrl) || normalizedImageUrl,
+      sourceUrl: normalizeImageUrl(resolved?.sourceUrl) || sourceUrl || window.location.href,
+      metadata: cleanCollectionMetadata(resolved?.metadata),
+    };
+
+    return payload;
+  }
+
   function registerSourceUrlResolver(resolver) {
     if (typeof resolver === "function") {
       sourceUrlResolvers.push(resolver);
@@ -316,11 +385,15 @@
   }
 
   function setLastImageContext(target, imageUrl, sourceUrl) {
+    const payload = resolveCollectionPayload(target, imageUrl, {
+      sourceUrl,
+      pageUrl: window.location.href,
+    });
     state.lastRightClickTarget = target ?? null;
-    state.lastImageUrl = imageUrl ?? null;
-    state.lastSourceUrl = sourceUrl
-      ? normalizeImageUrl(sourceUrl)
-      : resolveSourceUrlFromElement(target, imageUrl);
+    state.lastImageUrl = payload?.imageUrl || imageUrl || null;
+    state.lastSourceUrl = payload?.sourceUrl || null;
+    state.lastCollectionPayload = payload;
+    return payload;
   }
 
   function getLastImageUrl() {
@@ -329,6 +402,10 @@
 
   function getLastSourceUrl() {
     return state.lastSourceUrl;
+  }
+
+  function getLastCollectionPayload() {
+    return state.lastCollectionPayload;
   }
 
   function getLastRightClickTarget() {
@@ -345,10 +422,12 @@
     getImageUrlFromElement,
     getImageUrlFromPoint,
     resolveSourceUrlFromElement,
+    resolveCollectionPayload,
     registerSourceUrlResolver,
     setLastImageContext,
     getLastImageUrl,
     getLastSourceUrl,
+    getLastCollectionPayload,
     getLastRightClickTarget,
   };
 })();

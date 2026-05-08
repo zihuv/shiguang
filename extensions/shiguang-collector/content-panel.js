@@ -610,10 +610,16 @@
       renderPanel();
 
       try {
-        const sourceUrl = batchImageByUrl.get(url)?.sourceUrl;
+        const imageItem = batchImageByUrl.get(url);
+        const sourceUrl = imageItem?.sourceUrl;
         const result = await collector.requestCollectImage(url, {
           referer: window.location.href,
           sourceUrl,
+          collectionPayload: {
+            imageUrl: url,
+            sourceUrl: sourceUrl || window.location.href,
+            metadata: imageItem?.metadata || null,
+          },
           missingImageMessage: "未找到可采集的图片",
           notifyOnSuccess: false,
           folderId: target.folderId,

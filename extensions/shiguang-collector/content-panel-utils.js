@@ -23,14 +23,16 @@
     const images = new Map();
 
     function addImage(url, width = 0, height = 0, sourceElement = null) {
-      const normalized = collector.normalizeImageUrl(url);
+      const payload = collector.resolveCollectionPayload?.(sourceElement, url, {
+        pageUrl: window.location.href,
+      });
+      const normalized = collector.normalizeImageUrl(payload?.imageUrl || url);
       if (!normalized || !/^https?:\/\//i.test(normalized)) {
         return;
       }
 
-      const sourceUrl = sourceElement
-        ? collector.resolveSourceUrlFromElement?.(sourceElement, normalized)
-        : null;
+      const sourceUrl = payload?.sourceUrl || null;
+      const metadata = payload?.metadata || null;
 
       if (!images.has(normalized)) {
         images.set(normalized, {
@@ -38,9 +40,15 @@
           width,
           height,
           sourceUrl,
+          metadata,
         });
-      } else if (sourceUrl && !images.get(normalized).sourceUrl) {
-        images.get(normalized).sourceUrl = sourceUrl;
+      } else {
+        if (sourceUrl && !images.get(normalized).sourceUrl) {
+          images.get(normalized).sourceUrl = sourceUrl;
+        }
+        if (metadata && !images.get(normalized).metadata) {
+          images.get(normalized).metadata = metadata;
+        }
       }
     }
 

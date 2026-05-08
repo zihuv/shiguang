@@ -29,7 +29,7 @@
       return false;
     }
 
-    collector.setLastImageContext(target, imageUrl);
+    const collectionPayload = collector.setLastImageContext(target, imageUrl);
 
     event.preventDefault();
     event.stopPropagation();
@@ -37,6 +37,7 @@
 
     try {
       const result = await collector.requestCollectImage(imageUrl, {
+        collectionPayload,
         missingImageMessage: "未找到可采集的图片",
         notifyOnSuccess: true,
         successMessage: "已发送到拾光",
@@ -85,11 +86,12 @@
         return;
       }
 
-      collector.setLastImageContext(target, imageUrl);
+      const collectionPayload = collector.setLastImageContext(target, imageUrl);
       dragDock?.showDragDock(
-        imageUrl,
+        collectionPayload?.imageUrl || imageUrl,
         window.location.href,
         collector.getLastSourceUrl?.() || window.location.href,
+        collectionPayload,
       );
     },
     true,
@@ -142,6 +144,7 @@
       sendResponse({
         imageUrl: collector.getLastImageUrl(),
         sourceUrl: collector.getLastSourceUrl?.() || null,
+        collectionPayload: collector.getLastCollectionPayload?.() || null,
       });
       return true;
     }

@@ -17,6 +17,11 @@ import {
 } from "../database";
 import { detectExtensionFromBytes } from "../media";
 import type { AppState, FolderRecord } from "../types";
+import {
+  buildCollectorImportDescription,
+  parseCollectorImportMetadata,
+  type CollectorImportMetadata,
+} from "./collector-import-metadata";
 import { emit, type GetWindow } from "./common";
 import { importBytes, normalizeImportExtension, runPostImportPipeline } from "./import-service";
 
@@ -35,6 +40,7 @@ type CollectorImportFromUrlPayload = CollectorFolderTargetPayload & {
   referer?: string;
   source_url?: string;
   sourceUrl?: string;
+  metadata?: unknown;
 };
 
 export function ensureBrowserCollectionFolder(state: AppState): FolderRecord {
@@ -126,6 +132,34 @@ function getRequestedSourceUrl(request: { query?: unknown; body?: unknown }): st
     query?.referer;
 
   return typeof value === "string" ? value.trim() : "";
+}
+
+function parseCollectorMetadataHeader(value: unknown): CollectorImportMetadata | null {
+  const headerValue = Array.isArray(value) ? value[0] : value;
+  if (typeof headerValue !== "string" || !headerValue.trim()) {
+    return null;
+  }
+
+  try {
+    return parseCollectorImportMetadata(JSON.parse(decodeURIComponent(headerValue)));
+  } catch {
+    return null;
+  }
+}
+
+function getRequestedMetadata(request: {
+  headers?: Record<string, unknown>;
+  body?: unknown;
+}): CollectorImportMetadata | null {
+  const fromHeader = parseCollectorMetadataHeader(
+    request.headers?.["x-shiguang-collector-metadata"],
+  );
+  if (fromHeader) {
+    return fromHeader;
+  }
+
+  const body = request.body as { metadata?: unknown } | undefined;
+  return parseCollectorImportMetadata(body?.metadata);
 }
 
 function resolveCollectorTargetFolder(state: AppState, folderId: number | null): FolderRecord {
@@ -223,6 +257,8 @@ export async function startCollectorServer(state: AppState, getWindow: GetWindow
       : Buffer.from(request.body as ArrayBuffer);
     try {
       const folder = resolveCollectorTargetFolder(state, getRequestedFolderId(request));
+      const sourceUrl = getRequestedSourceUrl(request);
+      const metadata = getRequestedMetadata(request);
       const query = request.query as { filename?: string };
       const filename = typeof query.filename === "string" ? query.filename : "";
       const headerContentType = request.headers["content-type"];
@@ -236,7 +272,8 @@ export async function startCollectorServer(state: AppState, getWindow: GetWindow
           detectExtensionFromBytes(body, contentType) ?? path.extname(filename),
         ),
         namePrefix: "browser",
-        sourceUrl: getRequestedSourceUrl(request),
+        sourceUrl,
+        description: buildCollectorImportDescription(metadata, sourceUrl),
       });
       runPostImportPipeline(state, getWindow(), file, { source: "collector" });
       return { success: true, file_id: file.id, error: null };
@@ -267,12 +304,16 @@ export async function startCollectorServer(state: AppState, getWindow: GetWindow
       const bytes = Buffer.from(await response.arrayBuffer());
       const folder = resolveCollectorTargetFolder(state, getRequestedFolderId(request));
       const contentType = response.headers.get("content-type");
+      const sourceUrl =
+        payload.source_url ?? payload.sourceUrl ?? payload.referer ?? payload.image_url;
+      const metadata = parseCollectorImportMetadata(payload.metadata);
       const file = await importBytes(state, {
         bytes,
         folderId: folder.id,
         fallbackExt: normalizeImportExtension(detectExtensionFromBytes(bytes, contentType)),
         namePrefix: "browser",
-        sourceUrl: payload.source_url ?? payload.sourceUrl ?? payload.referer ?? payload.image_url,
+        sourceUrl,
+        description: buildCollectorImportDescription(metadata, sourceUrl),
       });
       runPostImportPipeline(state, getWindow(), file, { source: "collector" });
       return { success: true, file_id: file.id, error: null };

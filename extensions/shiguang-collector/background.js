@@ -254,7 +254,7 @@ async function readShiguangJson(response) {
   return result;
 }
 
-async function importImageToShiguang(imageUrl, referer, sourceUrl, folderId) {
+async function importImageToShiguang(imageUrl, referer, sourceUrl, folderId, metadata = null) {
   const response = await fetchShiguang("/api/import-from-url", {
     method: "POST",
     headers: {
@@ -265,6 +265,7 @@ async function importImageToShiguang(imageUrl, referer, sourceUrl, folderId) {
       referer,
       source_url: sourceUrl || referer || imageUrl,
       folder_id: folderId,
+      metadata,
     }),
   });
   return readShiguangJson(response);
@@ -313,7 +314,7 @@ function filenameFromImageUrl(imageUrl, contentType) {
   return ext ? `${filename}.${ext}` : filename;
 }
 
-async function importImageViaBrowserFetch(imageUrl, folderId, sourceUrl) {
+async function importImageViaBrowserFetch(imageUrl, folderId, sourceUrl, metadata = null) {
   const response = await fetch(imageUrl, {
     cache: "no-store",
     credentials: "include",
@@ -335,12 +336,13 @@ async function importImageViaBrowserFetch(imageUrl, folderId, sourceUrl) {
     filename: filenameFromImageUrl(imageUrl, contentType),
     folderId,
     sourceUrl: sourceUrl || imageUrl,
+    metadata,
   });
 }
 
 async function importBytesToShiguang(
   bytes,
-  { filename = "screenshot.png", folderId = null, sourceUrl = "" } = {},
+  { filename = "screenshot.png", folderId = null, sourceUrl = "", metadata = null } = {},
 ) {
   const params = new URLSearchParams({
     filename,
@@ -356,6 +358,11 @@ async function importBytesToShiguang(
     method: "POST",
     headers: {
       "Content-Type": "application/octet-stream",
+      ...(metadata
+        ? {
+            "X-Shiguang-Collector-Metadata": encodeURIComponent(JSON.stringify(metadata)),
+          }
+        : {}),
     },
     body: bytes,
   });
@@ -440,6 +447,7 @@ async function runImportTask(task) {
       task.referer,
       task.sourceUrl,
       task.folderId,
+      task.metadata,
     );
     if (task.notifyOnSuccess) {
       await notifyResult(task.tabId, task.successMessage || "已发送到拾光", "success", 2200);
@@ -456,6 +464,7 @@ async function runImportTask(task) {
           task.imageUrl,
           task.folderId,
           task.sourceUrl,
+          task.metadata,
         );
         if (task.notifyOnSuccess) {
           await notifyResult(task.tabId, task.successMessage || "已发送到拾光", "success", 2200);
@@ -488,6 +497,7 @@ async function collectImage({
   imageUrl,
   referer,
   sourceUrl,
+  metadata = null,
   missingImageMessage = "未找到图片，请右键点击图片后重试",
   notifyOnError = true,
   notifyOnSuccess = false,
@@ -516,6 +526,7 @@ async function collectImage({
     imageUrl,
     referer,
     sourceUrl: sourceUrl || referer || imageUrl,
+    metadata,
     folderId: target.folderId,
     notifyOnError,
     notifyOnSuccess,
@@ -554,6 +565,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const referer = tab?.url || info.pageUrl;
   let sourceUrl = referer;
   let imageUrl = null;
+  let metadata = null;
 
   // 优先复用 content script 的取图结果，和 Alt+左键保持一致
   if (tabId) {
@@ -564,6 +576,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       if (response && response.imageUrl) {
         imageUrl = response.imageUrl;
         sourceUrl = response.sourceUrl || sourceUrl;
+        metadata = response.collectionPayload?.metadata || null;
       }
     } catch (error) {
       console.error("Failed to get image from content script:", error);
@@ -581,6 +594,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       imageUrl,
       referer,
       sourceUrl,
+      metadata,
       missingImageMessage: "未找到图片，请右键点击图片后重试",
       notifyOnSuccess: true,
     });
@@ -700,6 +714,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       imageUrl: payload.imageUrl,
       referer: payload.referer || _sender.tab?.url,
       sourceUrl: payload.sourceUrl || payload.source_url || payload.referer || _sender.tab?.url,
+      metadata: payload.metadata || null,
       missingImageMessage: payload.missingImageMessage || "未找到可采集的图片",
       notifyOnError: false,
       notifyOnSuccess: payload.notifyOnSuccess === true,
