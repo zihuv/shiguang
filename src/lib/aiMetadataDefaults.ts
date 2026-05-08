@@ -31,7 +31,7 @@ export const DEFAULT_AI_METADATA_ANALYSIS: AiMetadataAnalysisConfig = {
   description: {
     enabled: true,
     prompt:
-      "生成一段简短备注，用 1 到 2 句话说明图片内容、视觉特点和适合用途。\n语气客观，不要夸张营销。\n如果已有备注准确，可以保留核心意思并润色。\n不要编造品牌、人物、地点、版权或不可见信息。",
+      "如果原描述合理，无需生成新的描述。如果为空或者无合理，生成一段简短备注，用 1 到 2 句话说明图片内容、视觉特点和适合用途。\n语气客观，不要夸张营销。\n如果已有备注准确，可以保留核心意思并润色。\n不要编造品牌、人物、地点、版权或不可见信息。",
   },
   rating: {
     enabled: false,
