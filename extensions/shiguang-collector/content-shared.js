@@ -14,6 +14,7 @@
     lastSourceUrl: null,
     lastCollectionPayload: null,
   };
+  const downloadFrames = new Map();
   const sourceUrlResolvers = [];
   const siteMetadata = globalThis.__shiguangCollectorSiteMetadata;
 
@@ -412,6 +413,49 @@
     return state.lastRightClickTarget;
   }
 
+  function createDownloadFrame(token, imageUrl) {
+    if (!token || !imageUrl) {
+      return { success: false, error: "缺少下载 frame 参数" };
+    }
+
+    removeDownloadFrame(token);
+
+    const frame = document.createElement("iframe");
+    frame.dataset.shiguangDownloadFrame = token;
+    frame.setAttribute("aria-hidden", "true");
+    frame.setAttribute("tabindex", "-1");
+    frame.style.cssText = [
+      "position: fixed",
+      "left: -10000px",
+      "top: -10000px",
+      "width: 8px",
+      "height: 8px",
+      "opacity: 0",
+      "pointer-events: none",
+      "border: 0",
+    ].join(";");
+    frame.src = imageUrl;
+    (document.body || document.documentElement).appendChild(frame);
+    downloadFrames.set(token, frame);
+
+    return { success: true };
+  }
+
+  function removeDownloadFrame(token) {
+    if (!token) {
+      return;
+    }
+
+    const existing = downloadFrames.get(token);
+    if (existing) {
+      existing.remove();
+      downloadFrames.delete(token);
+      return;
+    }
+
+    document.querySelector(`iframe[data-shiguang-download-frame="${CSS.escape(token)}"]`)?.remove();
+  }
+
   globalThis.__shiguangCollector = {
     state,
     showToast,
@@ -429,5 +473,7 @@
     getLastSourceUrl,
     getLastCollectionPayload,
     getLastRightClickTarget,
+    createDownloadFrame,
+    removeDownloadFrame,
   };
 })();

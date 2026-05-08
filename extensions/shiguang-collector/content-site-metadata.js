@@ -20,10 +20,6 @@
     }
   }
 
-  function isHttpUrl(url) {
-    return typeof url === "string" && /^https?:\/\//i.test(url);
-  }
-
   function sameUrl(left, right) {
     return Boolean(left && right && normalizeUrl(left) === normalizeUrl(right));
   }
@@ -100,28 +96,6 @@
     );
   }
 
-  function parseSrcset(srcset) {
-    return String(srcset || "")
-      .split(",")
-      .map((entry) => entry.trim())
-      .filter(Boolean)
-      .map((entry) => {
-        const parts = entry.split(/\s+/);
-        const url = normalizeUrl(parts[0]);
-        const descriptor = parts[1] || "";
-        const widthMatch = descriptor.match(/^(\d+)w$/i);
-        const densityMatch = descriptor.match(/^(\d+(?:\.\d+)?)x$/i);
-        const score = widthMatch
-          ? Number.parseInt(widthMatch[1], 10)
-          : densityMatch
-            ? Number.parseFloat(densityMatch[1]) * 1000
-            : 0;
-        return { url, score };
-      })
-      .filter((item) => isHttpUrl(item.url))
-      .sort((left, right) => right.score - left.score);
-  }
-
   function getImageElement(target) {
     const element = target?.nodeType === Node.TEXT_NODE ? target.parentElement : target;
     if (element instanceof HTMLImageElement) {
@@ -131,22 +105,6 @@
       return element.querySelector("img");
     }
     return null;
-  }
-
-  function getLargestSourceFromImage(target) {
-    const img = getImageElement(target);
-    if (!img) {
-      return null;
-    }
-
-    const candidates = [
-      ...parseSrcset(img.srcset),
-      ...Array.from(img.parentElement?.querySelectorAll?.("source[srcset]") || []).flatMap((node) =>
-        parseSrcset(node.getAttribute("srcset")),
-      ),
-    ];
-
-    return candidates[0]?.url || normalizeUrl(img.currentSrc || img.src);
   }
 
   function collectJsonLdItems() {
@@ -380,13 +338,9 @@
       context.sourceUrl ||
       findClosestAnchorUrl(context.target, isUnsplashDetailUrl) ||
       (isUnsplashDetailUrl(context.pageUrl) ? context.pageUrl : "");
-    const photoId = parseUnsplashPhotoId(sourceUrl || context.imageUrl || context.pageUrl);
-    const imageUrl = photoId
-      ? `https://unsplash.com/photos/${photoId}/download?force=true`
-      : getLargestSourceFromImage(context.target) || context.imageUrl;
 
     return {
-      imageUrl,
+      imageUrl: context.imageUrl,
       sourceUrl: sourceUrl || context.pageUrl,
       metadata: mergeMetadata(genericMetadata, {
         provider: "Unsplash",
@@ -407,13 +361,9 @@
       context.sourceUrl ||
       findClosestAnchorUrl(context.target, isPexelsDetailUrl) ||
       (isPexelsDetailUrl(context.pageUrl) ? context.pageUrl : "");
-    const detailImageUrl = sourceUrl ? `${sourceUrl.replace(/\/+$/, "")}/download/` : "";
-    const fallbackImageUrl = context.imageUrl.includes("images.pexels.com")
-      ? context.imageUrl.split("?")[0]
-      : getLargestSourceFromImage(context.target) || context.imageUrl;
 
     return {
-      imageUrl: detailImageUrl || fallbackImageUrl,
+      imageUrl: context.imageUrl,
       sourceUrl: sourceUrl || context.pageUrl,
       metadata: mergeMetadata(genericMetadata, {
         provider: "Pexels",
@@ -432,13 +382,6 @@
       findClosestAnchorUrl(context.target, isPixabayDetailUrl) ||
       (isPixabayDetailUrl(context.pageUrl) ? context.pageUrl : "");
 
-    const downloadAnchor =
-      document.querySelector("a[href*='/get/']")?.href ||
-      document.querySelector("a[href*='cdn.pixabay.com/photo/']")?.href ||
-      "";
-    const imageUrl =
-      normalizeUrl(downloadAnchor) || getLargestSourceFromImage(context.target) || context.imageUrl;
-
     const tags = [];
     const title = cleanTitle(getMetaContent("meta[property='og:title']") || document.title);
     const titleId = parsePixabayPhotoId(title);
@@ -451,7 +394,7 @@
     }
 
     return {
-      imageUrl,
+      imageUrl: context.imageUrl,
       sourceUrl: sourceUrl || context.pageUrl,
       metadata: mergeMetadata(genericMetadata, {
         provider: "Pixabay",
@@ -471,14 +414,8 @@
       findClosestAnchorUrl(context.target, isFlickrDetailUrl) ||
       (isFlickrDetailUrl(context.pageUrl) ? context.pageUrl : "");
 
-    const largestSource = getLargestSourceFromImage(context.target);
-    const imageUrl =
-      normalizeUrl(document.querySelector("meta[property='og:image']")?.getAttribute("content")) ||
-      largestSource ||
-      context.imageUrl;
-
     return {
-      imageUrl,
+      imageUrl: context.imageUrl,
       sourceUrl: sourceUrl || context.pageUrl,
       metadata: mergeMetadata(genericMetadata, {
         provider: "Flickr",
@@ -497,14 +434,6 @@
       findClosestAnchorUrl(context.target, isCommonsFileUrl) ||
       (isCommonsFileUrl(context.pageUrl) ? context.pageUrl : "");
 
-    const imageUrl =
-      normalizeUrl(document.querySelector("a.internal[href*='upload.wikimedia.org']")?.href) ||
-      normalizeUrl(
-        document.querySelector("div.fullImageLink a[href*='upload.wikimedia.org']")?.href,
-      ) ||
-      getLargestSourceFromImage(context.target) ||
-      context.imageUrl;
-
     const license =
       normalizeText(
         document.querySelector(".licensetpl_short")?.textContent ||
@@ -513,7 +442,7 @@
       ) || "Wikimedia Commons";
 
     return {
-      imageUrl,
+      imageUrl: context.imageUrl,
       sourceUrl: sourceUrl || context.pageUrl,
       metadata: mergeMetadata(genericMetadata, {
         provider: "Wikimedia Commons",
@@ -545,7 +474,7 @@
     }
 
     return {
-      imageUrl: getLargestSourceFromImage(context.target) || context.imageUrl,
+      imageUrl: context.imageUrl,
       sourceUrl: context.sourceUrl || context.pageUrl,
       metadata: genericMetadata,
     };

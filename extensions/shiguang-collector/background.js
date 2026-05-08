@@ -5,9 +5,11 @@ const PREFERENCES_KEY = "shiguangCollectorPreferences";
 const DEFAULT_IMPORT_CONCURRENCY = 10;
 const DEDUPE_WINDOW_MS = 1000;
 const IMPORT_QUEUE_LIMIT = 500;
+const FRAME_DOWNLOAD_TIMEOUT_MS = 12000;
 
 const importQueue = [];
 const recentImportTimes = new Map();
+const pendingFrameDownloads = new Map();
 let activeImportCount = 0;
 let cachedPreferences = {};
 
@@ -183,10 +185,6 @@ function getErrorMessage(error) {
   return message;
 }
 
-function isLocalServiceConnectionError(error) {
-  return getErrorMessage(error).includes("无法连接到拾光本地服务");
-}
-
 async function isShiguangServerReachable() {
   try {
     const response = await fetch(`${SHIGUANG_SERVER_URL}/api/health`, {
@@ -254,23 +252,6 @@ async function readShiguangJson(response) {
   return result;
 }
 
-async function importImageToShiguang(imageUrl, referer, sourceUrl, folderId, metadata = null) {
-  const response = await fetchShiguang("/api/import-from-url", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      image_url: imageUrl,
-      referer,
-      source_url: sourceUrl || referer || imageUrl,
-      folder_id: folderId,
-      metadata,
-    }),
-  });
-  return readShiguangJson(response);
-}
-
 function extensionFromContentType(contentType) {
   const mime = String(contentType || "")
     .split(";")[0]
@@ -297,9 +278,11 @@ function filenameFromImageUrl(imageUrl, contentType) {
   let filename = "browser-image";
   try {
     const url = new URL(imageUrl);
-    const name = decodeURIComponent(url.pathname.split("/").filter(Boolean).pop() || "");
-    if (name) {
-      filename = name;
+    if (url.protocol !== "data:") {
+      const name = decodeURIComponent(url.pathname.split("/").filter(Boolean).pop() || "");
+      if (name) {
+        filename = name;
+      }
     }
   } catch {
     // Keep fallback filename.
@@ -314,35 +297,238 @@ function filenameFromImageUrl(imageUrl, contentType) {
   return ext ? `${filename}.${ext}` : filename;
 }
 
-async function importImageViaBrowserFetch(imageUrl, folderId, sourceUrl, metadata = null) {
+function splitDataUrl(dataUrl) {
+  const match = String(dataUrl || "").match(/^data:([^;,]+)?((?:;[^,]+)*),(.*)$/s);
+  if (!match) {
+    throw new Error("图片数据格式无效");
+  }
+
+  const contentType = match[1] || "application/octet-stream";
+  const flags = match[2] || "";
+  const data = match[3] || "";
+  if (flags.includes(";base64")) {
+    const binary = atob(data);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return { bytes: bytes.buffer, contentType };
+  }
+
+  return {
+    bytes: new TextEncoder().encode(decodeURIComponent(data)).buffer,
+    contentType,
+  };
+}
+
+function isDataUrl(value) {
+  return typeof value === "string" && value.startsWith("data:");
+}
+
+function isHttpUrl(value) {
+  return typeof value === "string" && /^https?:\/\//i.test(value);
+}
+
+function dataUrlToFetchResult(dataUrl) {
+  const { bytes, contentType } = splitDataUrl(dataUrl);
+  return {
+    bytes,
+    contentType,
+    finalUrl: dataUrl,
+  };
+}
+
+async function fetchImageBytesFromBrowser(imageUrl) {
   const response = await fetch(imageUrl, {
-    cache: "no-store",
+    cache: "force-cache",
     credentials: "include",
   });
 
   if (!response.ok) {
     throw new Error(
-      `浏览器侧下载失败：HTTP ${response.status} ${response.statusText || ""}`.trim(),
+      `浏览器侧取图失败：HTTP ${response.status} ${response.statusText || ""}`.trim(),
     );
   }
 
   const contentType = response.headers.get("content-type") || "";
   const bytes = await response.arrayBuffer();
   if (!bytes.byteLength) {
-    throw new Error("浏览器侧下载失败：图片数据为空");
+    throw new Error("浏览器侧取图失败：图片数据为空");
   }
 
+  return {
+    bytes,
+    contentType,
+    finalUrl: response.url || imageUrl,
+  };
+}
+
+function createFrameNavigationWaiter(tabId, imageUrl, token) {
+  let cleanup = () => {};
+  const promise = new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error("浏览器 frame 取图超时"));
+    }, FRAME_DOWNLOAD_TIMEOUT_MS);
+
+    cleanup = () => {
+      clearTimeout(timeout);
+      chrome.webNavigation.onCommitted.removeListener(handleCommitted);
+      pendingFrameDownloads.delete(token);
+    };
+
+    const handleCommitted = (details) => {
+      const pending = pendingFrameDownloads.get(token);
+      if (!pending || details.tabId !== tabId || details.frameId === 0) {
+        return;
+      }
+
+      try {
+        const navigatedUrl = new URL(details.url);
+        const targetUrl = new URL(imageUrl);
+        if (navigatedUrl.href !== targetUrl.href && navigatedUrl.origin !== targetUrl.origin) {
+          return;
+        }
+      } catch {
+        return;
+      }
+
+      cleanup();
+      resolve(details.frameId);
+    };
+
+    pendingFrameDownloads.set(token, { tabId, imageUrl });
+    chrome.webNavigation.onCommitted.addListener(handleCommitted);
+  });
+
+  return { promise, cancel: cleanup };
+}
+
+async function extractImageDataUrlFromFrame(tabId, frameId, imageUrl) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId, frameIds: [frameId] },
+    func: async (url) => {
+      const response = await fetch(url, {
+        cache: "force-cache",
+        credentials: "include",
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status} ${response.statusText || ""}`.trim());
+      }
+
+      const contentType = response.headers.get("content-type") || "application/octet-stream";
+      const blob = await response.blob();
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("读取图片数据失败"));
+        reader.onloadend = () => resolve(String(reader.result || ""));
+        reader.readAsDataURL(blob);
+      });
+
+      return {
+        dataUrl,
+        contentType,
+        finalUrl: response.url || url,
+      };
+    },
+    args: [imageUrl],
+  });
+
+  const result = results?.[0]?.result;
+  if (!result?.dataUrl) {
+    throw new Error("浏览器 frame 未返回图片数据");
+  }
+
+  return result;
+}
+
+async function fetchImageBytesViaFrame(imageUrl, tabId) {
+  if (!tabId) {
+    throw new Error("当前标签页不可用，无法使用浏览器 frame 取图");
+  }
+
+  const token = `download-frame-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const frameReady = createFrameNavigationWaiter(tabId, imageUrl, token);
+  let created;
+  try {
+    created = await chrome.tabs.sendMessage(tabId, {
+      action: "createDownloadFrame",
+      payload: { token, imageUrl },
+    });
+  } catch (error) {
+    frameReady.cancel();
+    throw new Error(`无法创建浏览器下载 frame：${getErrorMessage(error)}`);
+  }
+
+  if (!created?.success) {
+    frameReady.cancel();
+    throw new Error(created?.error || "无法创建浏览器下载 frame");
+  }
+
+  try {
+    const frameId = await frameReady.promise;
+    const extracted = await extractImageDataUrlFromFrame(tabId, frameId, imageUrl);
+    const parsed = dataUrlToFetchResult(extracted.dataUrl);
+    return {
+      ...parsed,
+      contentType: extracted.contentType || parsed.contentType,
+      finalUrl: extracted.finalUrl || imageUrl,
+    };
+  } finally {
+    pendingFrameDownloads.delete(token);
+    try {
+      await chrome.tabs.sendMessage(tabId, {
+        action: "removeDownloadFrame",
+        payload: { token },
+      });
+    } catch {
+      // The page may have navigated while the download was running.
+    }
+  }
+}
+
+async function resolveImageBytes(task) {
+  if (isDataUrl(task.imageUrl)) {
+    return dataUrlToFetchResult(task.imageUrl);
+  }
+
+  if (!isHttpUrl(task.imageUrl)) {
+    throw new Error("仅支持采集浏览器可读取的图片数据");
+  }
+
+  try {
+    return await fetchImageBytesFromBrowser(task.imageUrl);
+  } catch (fetchError) {
+    try {
+      return await fetchImageBytesViaFrame(task.imageUrl, task.tabId);
+    } catch (frameError) {
+      throw new Error(
+        `浏览器侧取图失败：${getErrorMessage(fetchError)}；frame 兜底失败：${getErrorMessage(frameError)}`,
+      );
+    }
+  }
+}
+
+async function importImageBytesToShiguang(task) {
+  const { bytes, contentType, finalUrl } = await resolveImageBytes(task);
   return importBytesToShiguang(bytes, {
-    filename: filenameFromImageUrl(imageUrl, contentType),
-    folderId,
-    sourceUrl: sourceUrl || imageUrl,
-    metadata,
+    filename: filenameFromImageUrl(finalUrl || task.imageUrl, contentType),
+    contentType,
+    folderId: task.folderId,
+    sourceUrl: task.sourceUrl || task.referer || finalUrl || task.imageUrl,
+    metadata: task.metadata,
   });
 }
 
 async function importBytesToShiguang(
   bytes,
-  { filename = "screenshot.png", folderId = null, sourceUrl = "", metadata = null } = {},
+  {
+    filename = "screenshot.png",
+    contentType = "application/octet-stream",
+    folderId,
+    sourceUrl = "",
+    metadata = null,
+  } = {},
 ) {
   const params = new URLSearchParams({
     filename,
@@ -357,7 +543,7 @@ async function importBytesToShiguang(
   const response = await fetchShiguang(`/api/import?${params.toString()}`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/octet-stream",
+      "Content-Type": contentType || "application/octet-stream",
       ...(metadata
         ? {
             "X-Shiguang-Collector-Metadata": encodeURIComponent(JSON.stringify(metadata)),
@@ -385,6 +571,7 @@ async function importDataUrlToShiguang(dataUrl, options = {}) {
   const bytes = await blob.arrayBuffer();
   return importBytesToShiguang(bytes, {
     filename: options.filename || "screenshot.png",
+    contentType: blob.type || "image/png",
     folderId: target.folderId,
   });
 }
@@ -442,13 +629,7 @@ function drainImportQueue() {
 
 async function runImportTask(task) {
   try {
-    const result = await importImageToShiguang(
-      task.imageUrl,
-      task.referer,
-      task.sourceUrl,
-      task.folderId,
-      task.metadata,
-    );
+    const result = await importImageBytesToShiguang(task);
     if (task.notifyOnSuccess) {
       await notifyResult(task.tabId, task.successMessage || "已发送到拾光", "success", 2200);
     }
@@ -457,28 +638,7 @@ async function runImportTask(task) {
       result,
     };
   } catch (error) {
-    let errorMessage = getErrorMessage(error);
-    if (!isLocalServiceConnectionError(error)) {
-      try {
-        const result = await importImageViaBrowserFetch(
-          task.imageUrl,
-          task.folderId,
-          task.sourceUrl,
-          task.metadata,
-        );
-        if (task.notifyOnSuccess) {
-          await notifyResult(task.tabId, task.successMessage || "已发送到拾光", "success", 2200);
-        }
-        return {
-          success: true,
-          result,
-          fallback: "browser_fetch",
-        };
-      } catch (fallbackError) {
-        errorMessage = `后端下载失败：${errorMessage}；浏览器兜底失败：${getErrorMessage(fallbackError)}`;
-      }
-    }
-
+    const errorMessage = getErrorMessage(error);
     console.error("发送到拾光失败:", errorMessage);
 
     if (task.notifyOnError) {

@@ -17,7 +17,7 @@ describe("collector site metadata", () => {
     delete globalThis.__shiguangCollectorSiteMetadata;
   });
 
-  it("upgrades Unsplash photo pages to use the download endpoint", async () => {
+  it("keeps the loaded Unsplash image url while adding page metadata", async () => {
     document.title = "A Deer in Snow | Unsplash";
     document.head.innerHTML = `
       <meta property="og:title" content="A Deer in Snow | Unsplash" />
@@ -37,13 +37,13 @@ describe("collector site metadata", () => {
         "https://unsplash.com/photos/a-deer-with-large-antlers-walks-through-a-snowy-field-QEMy1ljAzGE",
     });
 
-    expect(payload.imageUrl).toBe("https://unsplash.com/photos/QEMy1ljAzGE/download?force=true");
+    expect(payload.imageUrl).toBe("https://images.unsplash.com/photo-123?w=640");
     expect(payload.metadata.provider).toBe("Unsplash");
     expect(payload.metadata.author).toBe("heinoeisner");
     expect(payload.metadata.title).toBe("A Deer in Snow");
   });
 
-  it("builds a Pexels download url from the detail page link", async () => {
+  it("keeps the loaded Pexels image url and resolves the detail source page", async () => {
     document.title = "Forest Trail - Pexels";
     document.head.innerHTML = `
       <meta property="og:title" content="Forest Trail - Pexels" />
@@ -64,11 +64,13 @@ describe("collector site metadata", () => {
     });
 
     expect(payload.sourceUrl).toBe("https://www.pexels.com/photo/forest-trail-12345/");
-    expect(payload.imageUrl).toBe("https://www.pexels.com/photo/forest-trail-12345/download/");
+    expect(payload.imageUrl).toBe(
+      "https://images.pexels.com/photos/12345/pexels-photo-12345.jpeg?auto=compress&cs=tinysrgb&w=600",
+    );
     expect(payload.metadata.provider).toBe("Pexels");
   });
 
-  it("prefers the Wikimedia original file link when available", async () => {
+  it("keeps the loaded Wikimedia image url while preserving the source page", async () => {
     document.title = "File:Example.jpg - Wikimedia Commons";
     document.head.innerHTML = `
       <meta property="og:title" content="File:Example.jpg - Wikimedia Commons" />
@@ -91,7 +93,7 @@ describe("collector site metadata", () => {
     });
 
     expect(payload.imageUrl).toBe(
-      "https://upload.wikimedia.org/wikipedia/commons/a/a9/Example.jpg",
+      "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a9/Example.jpg/640px-Example.jpg",
     );
     expect(payload.metadata.provider).toBe("Wikimedia Commons");
     expect(payload.sourceUrl).toBe("https://commons.wikimedia.org/wiki/File:Example.jpg");

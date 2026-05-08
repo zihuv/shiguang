@@ -203,5 +203,23 @@
         );
       return true;
     }
+
+    if (message.action === "createDownloadFrame") {
+      const payload = message.payload || {};
+      sendResponse(
+        collector.createDownloadFrame?.(payload.token, payload.imageUrl) || {
+          success: false,
+          error: "当前页面无法创建下载 frame",
+        },
+      );
+      return true;
+    }
+
+    if (message.action === "removeDownloadFrame") {
+      const payload = message.payload || {};
+      collector.removeDownloadFrame?.(payload.token);
+      sendResponse({ success: true });
+      return true;
+    }
   });
 })();

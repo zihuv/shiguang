@@ -8,7 +8,11 @@
 
 ### Added
 
-- 浏览器采集扩展支持从 Unsplash、Pexels、Pixabay、Flickr 和 Wikimedia Commons 透传网页元数据，并在可用时优先保存高清图片。
+- 浏览器采集扩展支持从 Unsplash、Pexels、Pixabay、Flickr 和 Wikimedia Commons 透传网页元数据。
+
+### Changed
+
+- 浏览器采集改为由扩展侧读取并上传图片数据，优先复用浏览器已加载资源，桌面端不再根据远程链接重新下载图片。
 
 ### Fixed
 
