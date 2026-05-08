@@ -1,10 +1,6 @@
 // Content Script Shared Utilities
 
-(() => {
-  if (globalThis.__shiguangCollector) {
-    return;
-  }
-
+export function createCollector(siteMetadata = null) {
   const TOAST_CONTAINER_ID = "shiguang-toast-container";
   const TOAST_REMOVE_DELAY = 240;
 
@@ -16,7 +12,6 @@
   };
   const downloadFrames = new Map();
   const sourceUrlResolvers = [];
-  const siteMetadata = globalThis.__shiguangCollectorSiteMetadata;
 
   function ensureToastContainer() {
     let container = document.getElementById(TOAST_CONTAINER_ID);
@@ -456,7 +451,7 @@
     document.querySelector(`iframe[data-shiguang-download-frame="${CSS.escape(token)}"]`)?.remove();
   }
 
-  globalThis.__shiguangCollector = {
+  return {
     state,
     showToast,
     getErrorMessage,
@@ -476,4 +471,4 @@
     createDownloadFrame,
     removeDownloadFrame,
   };
-})();
+}

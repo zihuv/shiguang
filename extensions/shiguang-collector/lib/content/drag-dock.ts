@@ -1,17 +1,9 @@
 // Content Script Drag Dock
 
-(() => {
-  if (globalThis.__shiguangCollectorDragDock) {
-    return;
-  }
+import { collectorPreferences } from "../preferences";
 
-  const collector = globalThis.__shiguangCollector;
-  if (!collector) {
-    return;
-  }
-
+export function createDragDock(collector) {
   const DRAG_DOCK_ID = "shiguang-drag-dock";
-  const PREFERENCES_KEY = "shiguangCollectorPreferences";
   const DRAG_DOCK_HIDE_DELAY = 140;
   const DRAG_DOCK_REDUCED_MOTION =
     window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
@@ -27,20 +19,14 @@
   let currentDragCollectionPayload = null;
   let dragDockEnabled = true;
 
-  chrome.storage.sync.get(PREFERENCES_KEY, (result) => {
-    const preferences = result?.[PREFERENCES_KEY] || {};
+  collectorPreferences.getValue().then((preferences) => {
     dragDockEnabled = preferences.dragDockEnabled !== false;
     if (!dragDockEnabled) {
       hideDragDock(true);
     }
   });
 
-  chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== "sync" || !changes[PREFERENCES_KEY]) {
-      return;
-    }
-
-    const preferences = changes[PREFERENCES_KEY].newValue || {};
+  collectorPreferences.watch((preferences) => {
     dragDockEnabled = preferences.dragDockEnabled !== false;
     if (!dragDockEnabled) {
       hideDragDock(true);
@@ -340,10 +326,10 @@
     }, delay);
   }
 
-  globalThis.__shiguangCollectorDragDock = {
+  return {
     showDragDock,
     hideDragDock,
     scheduleHide: scheduleDragDockHide,
     isEnabled: () => dragDockEnabled,
   };
-})();
+}

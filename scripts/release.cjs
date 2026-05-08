@@ -7,8 +7,7 @@ const VERSION_PATTERN = /^\d+\.\d+\.\d+(?:\.\d+)?$/;
 const CHANGELOG_FILE = "docs/CHANGELOG.md";
 const PACKAGE_JSON_FILE = "package.json";
 const PACKAGE_LOCK_FILE = "package-lock.json";
-const EXTENSION_MANIFEST_FILE = "extensions/shiguang-collector/manifest.json";
-const VERSION_FILES = [PACKAGE_JSON_FILE, PACKAGE_LOCK_FILE, EXTENSION_MANIFEST_FILE];
+const VERSION_FILES = [PACKAGE_JSON_FILE, PACKAGE_LOCK_FILE];
 
 function parseArgs(argv) {
   const flags = new Set();
@@ -78,7 +77,7 @@ function createGitRunner(repoRoot) {
 function ensureValidVersion(version) {
   if (!version || !VERSION_PATTERN.test(version)) {
     throw new Error(
-      `Invalid version: ${version || "<empty>"}\nExpected a numeric version like 0.1.0 or 0.1.0.1 because the browser extension manifest is released together with the app.`,
+      `Invalid version: ${version || "<empty>"}\nExpected a numeric version like 0.1.0 or 0.1.0.1.`,
     );
   }
 }
@@ -138,10 +137,6 @@ function updateVersions(version) {
   run(npmCommand(), ["version", version, "--no-git-tag-version"], {
     stdio: "pipe",
   });
-
-  for (const file of [EXTENSION_MANIFEST_FILE]) {
-    updateJsonVersion(file, version);
-  }
 }
 
 function releaseDate() {
@@ -201,7 +196,7 @@ function printPlan(version, noPush) {
   console.log(
     `- npm version ${version} --no-git-tag-version to update ${PACKAGE_JSON_FILE} and ${PACKAGE_LOCK_FILE}`,
   );
-  console.log(`- update ${EXTENSION_MANIFEST_FILE} to ${version}`);
+  console.log("- browser extension manifest version is generated from package.json by WXT");
   console.log(`- move ${CHANGELOG_FILE} Unreleased notes to ${version}`);
   console.log(`- node scripts/prepare-release.cjs ${version}`);
   console.log(`- git add ${VERSION_FILES.join(" ")} ${CHANGELOG_FILE}`);

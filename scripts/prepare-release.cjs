@@ -13,10 +13,7 @@ if (!version) {
   process.exit(1);
 }
 
-const filesToValidate = [
-  "package.json",
-  "extensions/shiguang-collector/manifest.json",
-];
+const filesToValidate = ["package.json"];
 
 const mismatches = [];
 
@@ -36,14 +33,8 @@ if (mismatches.length > 0) {
   process.exit(1);
 }
 
-const templatePath = path.join(
-  process.env.GITHUB_WORKSPACE || ".",
-  ".github/release_template.md",
-);
-const changelogPath = path.join(
-  process.env.GITHUB_WORKSPACE || ".",
-  "docs/CHANGELOG.md",
-);
+const templatePath = path.join(process.env.GITHUB_WORKSPACE || ".", ".github/release_template.md");
+const changelogPath = path.join(process.env.GITHUB_WORKSPACE || ".", "docs/CHANGELOG.md");
 const outputFile = process.env.GITHUB_OUTPUT;
 
 let body = `See the assets to download version ${version}.`;
@@ -68,10 +59,7 @@ if (fs.existsSync(changelogPath)) {
 if (fs.existsSync(templatePath)) {
   body = fs.readFileSync(templatePath, "utf8").replace(/VERSION/g, version);
   if (releaseNotes) {
-    const nextBody = body.replace(
-      /^- 更新内容待补充（@zihuv）\r?\n?/,
-      `${releaseNotes}\n\n`,
-    );
+    const nextBody = body.replace(/^- 更新内容待补充（@zihuv）\r?\n?/, `${releaseNotes}\n\n`);
     body = nextBody === body ? `${releaseNotes}\n\n${body}` : nextBody;
   }
 } else {

@@ -1,19 +1,16 @@
 // Xiaohongshu Site Integration
 
-(() => {
+let initialized = false;
+
+export function initXiaohongshu(collector) {
   if (!window.location.hostname.includes("xiaohongshu.com")) {
     return;
   }
 
-  if (globalThis.__shiguangCollectorXiaohongshuInitialized) {
+  if (initialized) {
     return;
   }
-  globalThis.__shiguangCollectorXiaohongshuInitialized = true;
-
-  const collector = globalThis.__shiguangCollector;
-  if (!collector) {
-    return;
-  }
+  initialized = true;
 
   const NOTE_LINK_SELECTORS = [
     "a.cover[href]",
@@ -229,4 +226,4 @@
   } else {
     handleXiaohongshuMenu();
   }
-})();
+}

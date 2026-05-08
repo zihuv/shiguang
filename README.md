@@ -33,11 +33,11 @@
 
 如果你需要从网页采集图片：
 
-1. 打开 `extensions/shiguang-collector` 目录
+1. 运行 `npm run extension:build`
 2. 在 Chrome/Edge 中打开 `chrome://extensions/`
 3. 开启「开发者模式」
 4. 点击「加载已解压的扩展程序」
-5. 选择 `extensions/shiguang-collector` 目录
+5. 选择 `extensions/shiguang-collector/.output/chrome-mv3` 目录
 
 使用：右键点击网页，选择「采集」，图片会自动保存到「浏览器采集」文件夹。
 

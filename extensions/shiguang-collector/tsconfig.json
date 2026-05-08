@@ -1,0 +1,10 @@
+{
+  "extends": "./.wxt/tsconfig.json",
+  "compilerOptions": {
+    "allowJs": false,
+    "checkJs": false,
+    "jsx": "react-jsx",
+    "strict": false,
+    "types": ["chrome", "vitest/globals", "@testing-library/jest-dom"]
+  }
+}

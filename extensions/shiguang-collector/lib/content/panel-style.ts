@@ -1,11 +1,6 @@
 // 拾光采集器 - 页面内面板样式
 
-(() => {
-  if (globalThis.__shiguangCollectorPanelStyle) {
-    return;
-  }
-
-  globalThis.__shiguangCollectorPanelStyle = `
+export const panelStyle = `
     :host { all: initial; }
     * { box-sizing: border-box; }
     .panel {
@@ -237,4 +232,3 @@
       .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
   `;
-})();

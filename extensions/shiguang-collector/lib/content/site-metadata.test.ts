@@ -2,9 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 async function loadResolver() {
   vi.resetModules();
-  delete globalThis.__shiguangCollectorSiteMetadata;
-  await import("./content-site-metadata.js");
-  return globalThis.__shiguangCollectorSiteMetadata;
+  const module = await import("./site-metadata");
+  return module.siteMetadata;
 }
 
 describe("collector site metadata", () => {
@@ -14,7 +13,7 @@ describe("collector site metadata", () => {
   });
 
   afterEach(() => {
-    delete globalThis.__shiguangCollectorSiteMetadata;
+    vi.restoreAllMocks();
   });
 
   it("keeps the loaded Unsplash image url while adding page metadata", async () => {

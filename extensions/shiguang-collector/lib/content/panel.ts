@@ -1,20 +1,9 @@
 // 拾光采集器 - 页面内面板
 
-(() => {
-  if (globalThis.__shiguangCollectorPanel) {
-    return;
-  }
+import { panelStyle } from "./panel-style";
+import { cropDataUrl, escapeHtml, parseOptionalInt, scanPageImages } from "./panel-utils";
 
-  const collector = globalThis.__shiguangCollector;
-  if (!collector) {
-    return;
-  }
-  const panelUtils = globalThis.__shiguangCollectorPanelUtils;
-  if (!panelUtils) {
-    return;
-  }
-  const { cropDataUrl, escapeHtml, parseOptionalInt, scanPageImages } = panelUtils;
-
+export function createPanel(collector) {
   const PANEL_ID = "shiguang-collector-panel-host";
   const OVERLAY_ID = "shiguang-area-capture-overlay";
   const ELEMENT_PICKER_OVERLAY_ID = "shiguang-element-picker-overlay";
@@ -188,7 +177,6 @@
       pickerHost.style.cssText = ["position: fixed", "inset: 0", "z-index: 2147483647"].join(";");
 
       const pickerShadow = pickerHost.attachShadow({ mode: "open" });
-      const panelStyle = globalThis.__shiguangCollectorPanelStyle || "";
       pickerShadow.innerHTML = `
         <style>${panelStyle}</style>
         <div class="folder-picker-shell" id="folderPickerShell">
@@ -266,7 +254,6 @@
     ].join(";");
 
     shadow = host.attachShadow({ mode: "open" });
-    const panelStyle = globalThis.__shiguangCollectorPanelStyle || "";
     shadow.innerHTML = `
       <style>${panelStyle}</style>
       <div class="panel" id="panelRoot" role="dialog" aria-label="拾光采集面板">
@@ -1000,7 +987,7 @@
     true,
   );
 
-  globalThis.__shiguangCollectorPanel = {
+  return {
     togglePanel,
     openPanel,
     closePanel,
@@ -1009,4 +996,4 @@
     startElementCapture,
     captureVisibleScreenshot,
   };
-})();
+}

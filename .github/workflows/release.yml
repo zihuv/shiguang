@@ -108,13 +108,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Create browser extension archive
         run: |
           mkdir -p dist
-          git archive \
-            --format=zip \
-            --output="dist/shiguang-collector_${{ needs.prepare.outputs.version }}.zip" \
-            HEAD:extensions/shiguang-collector
+          npm run extension:zip
+          cp "$(find extensions/shiguang-collector/.output -name '*.zip' -type f | head -n 1)" \
+            "dist/shiguang-collector_${{ needs.prepare.outputs.version }}.zip"
 
       - name: Upload browser extension asset
         uses: softprops/action-gh-release@v2
