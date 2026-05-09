@@ -36,7 +36,8 @@ describe("collector site metadata", () => {
         "https://unsplash.com/photos/a-deer-with-large-antlers-walks-through-a-snowy-field-QEMy1ljAzGE",
     });
 
-    expect(payload.imageUrl).toBe("https://images.unsplash.com/photo-123");
+    expect(payload.imageUrl).toBe("https://images.unsplash.com/photo-123?w=640");
+    expect(payload.candidateUrls[0]).toBe("https://images.unsplash.com/photo-123");
     expect(payload.metadata.provider).toBe("Unsplash");
     expect(payload.metadata.author).toBe("heinoeisner");
     expect(payload.metadata.title).toBe("A Deer in Snow");
@@ -64,6 +65,9 @@ describe("collector site metadata", () => {
 
     expect(payload.sourceUrl).toBe("https://www.pexels.com/photo/forest-trail-12345/");
     expect(payload.imageUrl).toBe(
+      "https://images.pexels.com/photos/12345/pexels-photo-12345.jpeg?auto=compress&cs=tinysrgb&w=600",
+    );
+    expect(payload.candidateUrls[0]).toBe(
       "https://images.pexels.com/photos/12345/pexels-photo-12345.jpeg?auto=compress",
     );
     expect(payload.metadata.provider).toBe("Pexels");
@@ -92,6 +96,9 @@ describe("collector site metadata", () => {
     });
 
     expect(payload.imageUrl).toBe(
+      "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a9/Example.jpg/640px-Example.jpg",
+    );
+    expect(payload.candidateUrls[0]).toBe(
       "https://upload.wikimedia.org/wikipedia/commons/a/a9/Example.jpg",
     );
     expect(payload.metadata.provider).toBe("Wikimedia Commons");
@@ -115,7 +122,8 @@ describe("collector site metadata", () => {
       pageUrl: "https://www.pinterest.com/search/pins/?q=poster",
     });
 
-    expect(payload.imageUrl).toBe("https://i.pinimg.com/originals/aa/bb/cc/example.jpg");
+    expect(payload.imageUrl).toBe("https://i.pinimg.com/236x/aa/bb/cc/example.jpg");
+    expect(payload.candidateUrls[0]).toBe("https://i.pinimg.com/originals/aa/bb/cc/example.jpg");
     expect(payload.sourceUrl).toBe("https://www.pinterest.com/pin/123456789/");
     expect(payload.metadata.provider).toBe("Pinterest");
   });
@@ -139,6 +147,9 @@ describe("collector site metadata", () => {
     });
 
     expect(payload.imageUrl).toBe(
+      "https://mir-s3-cdn-cf.behance.net/project_modules/disp/example.jpg",
+    );
+    expect(payload.candidateUrls[0]).toBe(
       "https://mir-s3-cdn-cf.behance.net/project_modules/source/example.jpg",
     );
     expect(payload.sourceUrl).toBe("https://www.behance.net/gallery/12345/Brand-System");
@@ -165,6 +176,9 @@ describe("collector site metadata", () => {
     });
 
     expect(payload.imageUrl).toBe(
+      "https://cdn.dribbble.com/userupload/1/file/original-example_1x.jpg?resize=400x300",
+    );
+    expect(payload.candidateUrls[0]).toBe(
       "https://cdn.dribbble.com/userupload/1/file/original-example.jpg",
     );
     expect(payload.sourceUrl).toBe("https://dribbble.com/shots/123-Dashboard");
@@ -189,6 +203,9 @@ describe("collector site metadata", () => {
     });
 
     expect(payload.imageUrl).toBe(
+      "https://cdna.artstation.com/p/assets/images/images/001/small_square/example.jpg?1",
+    );
+    expect(payload.candidateUrls[0]).toBe(
       "https://cdna.artstation.com/p/assets/images/images/001/large/example.jpg",
     );
     expect(payload.sourceUrl).toBe("https://www.artstation.com/artwork/abc123");
@@ -214,9 +231,39 @@ describe("collector site metadata", () => {
     });
 
     expect(payload.imageUrl).toBe(
+      "https://i.pximg.net/c/250x250_80_a2/custom-thumb/img/2025/01/01/00/00/00/12345678_p0_custom1200.jpg",
+    );
+    expect(payload.candidateUrls[0]).toBe(
       "https://i.pximg.net/img-original/img/2025/01/01/00/00/00/12345678_p0.jpg",
     );
     expect(payload.sourceUrl).toBe("https://www.pixiv.net/artworks/12345678");
     expect(payload.metadata.provider).toBe("pixiv");
+  });
+
+  it("keeps Xiaohongshu page image urls while adding Eagle-style enlarged candidates", async () => {
+    document.title = "小红书笔记";
+    document.body.innerHTML = `
+      <div id="noteContainer" class="note-container">
+        <div class="title">灵感图</div>
+        <a class="name" href="/user/profile/abc">作者</a>
+        <img id="target" src="https://sns-webpic-qc.xhscdn.com/202605091900/ac9ba12217d30d553def2eacd3e33f1e/notes_pre_post/1040g3k831vldn71o2abg5pqhkkdndgpj2feg19g!nd_dft_wlteh_webp_3" />
+      </div>
+    `;
+
+    const imageUrl =
+      "https://sns-webpic-qc.xhscdn.com/202605091900/ac9ba12217d30d553def2eacd3e33f1e/notes_pre_post/1040g3k831vldn71o2abg5pqhkkdndgpj2feg19g!nd_dft_wlteh_webp_3";
+    const resolver = await loadResolver();
+    const payload = resolver.resolveCollectionPayload({
+      target: document.getElementById("target"),
+      imageUrl,
+      pageUrl: "https://www.xiaohongshu.com/explore/abcdef123456789012345678",
+    });
+
+    expect(payload.imageUrl).toBe(imageUrl);
+    expect(payload.candidateUrls[0]).toBe(
+      "https://sns-img-al.xhscdn.com/notes_pre_post/1040g3k831vldn71o2abg5pqhkkdndgpj2feg19g",
+    );
+    expect(payload.candidateUrls).toContain(imageUrl);
+    expect(payload.metadata.provider).toBe("小红书");
   });
 });

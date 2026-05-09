@@ -18,9 +18,16 @@ export function initBackground(): void {
     return Object.prototype.hasOwnProperty.call(value, key);
   }
 
-  chrome.storage.sync.get(PREFERENCES_KEY, (result) => {
-    cachedPreferences = normalizePreferences(result?.[PREFERENCES_KEY]);
-  });
+  function readStoredPreferences() {
+    return new Promise((resolve) => {
+      chrome.storage.sync.get(PREFERENCES_KEY, (result) => {
+        cachedPreferences = normalizePreferences(result?.[PREFERENCES_KEY]);
+        resolve(cachedPreferences);
+      });
+    });
+  }
+
+  void readStoredPreferences();
 
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== "sync" || !changes[PREFERENCES_KEY]) {
@@ -110,7 +117,8 @@ export function initBackground(): void {
       return { cancelled: false, folderId: null };
     }
 
-    if (cachedPreferences.targetFolderEnabled !== true) {
+    const preferences = await readStoredPreferences();
+    if (preferences.targetFolderEnabled !== true) {
       return { cancelled: false, folderId: null };
     }
 
@@ -488,26 +496,64 @@ export function initBackground(): void {
     }
   }
 
-  async function resolveImageBytes(task) {
-    if (isDataUrl(task.imageUrl)) {
-      return dataUrlToFetchResult(task.imageUrl);
+  function uniqueImportUrls(urls) {
+    const seen = new Set();
+    const unique = [];
+    for (const url of urls) {
+      if (typeof url !== "string" || !url.trim() || seen.has(url)) {
+        continue;
+      }
+      seen.add(url);
+      unique.push(url);
+    }
+    return unique;
+  }
+
+  async function resolveImageBytesFromUrl(imageUrl, tabId) {
+    if (isDataUrl(imageUrl)) {
+      return dataUrlToFetchResult(imageUrl);
     }
 
-    if (!isHttpUrl(task.imageUrl)) {
+    if (!isHttpUrl(imageUrl)) {
       throw new Error("仅支持采集浏览器可读取的图片数据");
     }
 
     try {
-      return await fetchImageBytesFromBrowser(task.imageUrl);
-    } catch (fetchError) {
+      return await fetchImageBytesViaFrame(imageUrl, tabId);
+    } catch (frameError) {
       try {
-        return await fetchImageBytesViaFrame(task.imageUrl, task.tabId);
-      } catch (frameError) {
+        return await fetchImageBytesFromBrowser(imageUrl);
+      } catch (fetchError) {
         throw new Error(
-          `浏览器侧取图失败：${getErrorMessage(fetchError)}；frame 兜底失败：${getErrorMessage(frameError)}`,
+          `frame 取图失败：${getErrorMessage(frameError)}；浏览器 fetch 失败：${getErrorMessage(fetchError)}`,
         );
       }
     }
+  }
+
+  async function resolveImageBytes(task) {
+    const candidateUrls = uniqueImportUrls([
+      ...(Array.isArray(task.candidateUrls) ? task.candidateUrls : []),
+      task.imageUrl,
+    ]);
+    const errors = [];
+
+    for (const candidateUrl of candidateUrls) {
+      try {
+        return await resolveImageBytesFromUrl(candidateUrl, task.tabId);
+      } catch (error) {
+        errors.push(`${candidateUrl}: ${getErrorMessage(error)}`);
+      }
+    }
+
+    if (isDataUrl(task.renderedImageDataUrl)) {
+      return {
+        ...dataUrlToFetchResult(task.renderedImageDataUrl),
+        finalUrl: task.imageUrl,
+      };
+    }
+
+    throw new Error(errors.length ? errors.join("；") : "未找到可采集的图片数据");
   }
 
   async function importImageBytesToShiguang(task) {
@@ -656,6 +702,7 @@ export function initBackground(): void {
   async function collectImage({
     tabId,
     imageUrl,
+    candidateUrls = [],
     referer,
     sourceUrl,
     metadata = null,
@@ -665,6 +712,7 @@ export function initBackground(): void {
     successMessage = "已发送到拾光",
     folderId,
     targetFolderResolved = false,
+    renderedImageDataUrl = null,
   }) {
     if (!imageUrl) {
       if (notifyOnError) {
@@ -685,10 +733,12 @@ export function initBackground(): void {
     return enqueueImportTask({
       tabId,
       imageUrl,
+      candidateUrls,
       referer,
       sourceUrl: sourceUrl || referer || imageUrl,
       metadata,
       folderId: target.folderId,
+      renderedImageDataUrl,
       notifyOnError,
       notifyOnSuccess,
       successMessage,
@@ -727,6 +777,8 @@ export function initBackground(): void {
     let sourceUrl = referer;
     let imageUrl = null;
     let metadata = null;
+    let renderedImageDataUrl = null;
+    let candidateUrls = [];
 
     // 优先复用 content script 的取图结果，和 Alt+左键保持一致
     if (tabId) {
@@ -738,6 +790,8 @@ export function initBackground(): void {
           imageUrl = response.imageUrl;
           sourceUrl = response.sourceUrl || sourceUrl;
           metadata = response.collectionPayload?.metadata || null;
+          candidateUrls = response.candidateUrls || response.collectionPayload?.candidateUrls || [];
+          renderedImageDataUrl = response.renderedImageDataUrl || null;
         }
       } catch (error) {
         console.error("Failed to get image from content script:", error);
@@ -753,9 +807,11 @@ export function initBackground(): void {
       await collectImage({
         tabId,
         imageUrl,
+        candidateUrls,
         referer,
         sourceUrl,
         metadata,
+        renderedImageDataUrl,
         missingImageMessage: "未找到图片，请右键点击图片后重试",
         notifyOnSuccess: true,
       });
@@ -882,6 +938,7 @@ export function initBackground(): void {
       collectImage({
         tabId: _sender.tab?.id,
         imageUrl: payload.imageUrl,
+        candidateUrls: Array.isArray(payload.candidateUrls) ? payload.candidateUrls : [],
         referer: payload.referer || _sender.tab?.url,
         sourceUrl: payload.sourceUrl || payload.source_url || payload.referer || _sender.tab?.url,
         metadata: payload.metadata || null,
@@ -891,6 +948,7 @@ export function initBackground(): void {
         successMessage: payload.successMessage || "已发送到拾光",
         folderId: payload.folderId ?? payload.folder_id,
         targetFolderResolved: payload.targetFolderResolved === true,
+        renderedImageDataUrl: payload.renderedImageDataUrl,
       })
         .then(sendResponse)
         .catch((error) => sendResponse({ success: false, error: getErrorMessage(error) }));
@@ -898,9 +956,7 @@ export function initBackground(): void {
     }
 
     if (message.action === "getPreferences") {
-      chrome.storage.sync.get(PREFERENCES_KEY, (result) => {
-        const preferences = normalizePreferences(result?.[PREFERENCES_KEY]);
-        cachedPreferences = preferences;
+      readStoredPreferences().then((preferences) => {
         sendResponse({
           preferences,
           defaults: {

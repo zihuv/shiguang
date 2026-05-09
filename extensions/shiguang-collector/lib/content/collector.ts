@@ -141,11 +141,16 @@ export function createCollector(siteMetadata = null) {
         pageUrl: options.referer || window.location.href,
       });
     const sourceUrl = collectionPayload?.sourceUrl || options.referer || window.location.href;
+    const target = options.target || state.lastRightClickTarget;
+    const renderedImageDataUrl =
+      options.renderedImageDataUrl ||
+      getRenderedImageDataUrl(target, collectionPayload?.imageUrl || imageUrl);
 
     const response = await chrome.runtime.sendMessage({
       action: "collectImage",
       payload: {
         imageUrl: collectionPayload?.imageUrl || imageUrl,
+        candidateUrls: buildImageCandidateUrls(target, imageUrl, collectionPayload),
         referer: options.referer || window.location.href,
         sourceUrl,
         metadata: collectionPayload?.metadata || null,
@@ -154,6 +159,7 @@ export function createCollector(siteMetadata = null) {
         successMessage: options.successMessage,
         folderId: options.folderId,
         targetFolderResolved: options.targetFolderResolved === true,
+        renderedImageDataUrl,
       },
     });
 
@@ -214,6 +220,21 @@ export function createCollector(siteMetadata = null) {
     }
   }
 
+  function uniqueUrls(urls) {
+    const seen = new Set();
+    const unique = [];
+    for (const url of urls) {
+      const normalized = normalizeImageUrl(url);
+      if (!normalized || seen.has(normalized)) {
+        continue;
+      }
+
+      seen.add(normalized);
+      unique.push(normalized);
+    }
+    return unique;
+  }
+
   function extractImageUrlFromDragEvent(event) {
     const dataTransfer = event.dataTransfer;
     if (!dataTransfer) {
@@ -246,6 +267,73 @@ export function createCollector(siteMetadata = null) {
     }
 
     return null;
+  }
+
+  function findRenderedImageElement(target, imageUrl) {
+    const element = getElementFromTarget(target);
+    const normalizedImageUrl = normalizeImageUrl(imageUrl);
+
+    const isUsableImage = (image) =>
+      image instanceof HTMLImageElement &&
+      image.complete &&
+      (image.naturalWidth || image.width) > 0 &&
+      (image.naturalHeight || image.height) > 0;
+
+    if (isUsableImage(element)) {
+      return element;
+    }
+
+    const nestedImage = element?.querySelector?.("img");
+    if (isUsableImage(nestedImage)) {
+      return nestedImage;
+    }
+
+    if (!normalizedImageUrl) {
+      return null;
+    }
+
+    return (
+      Array.from(document.images).find((image) => {
+        if (!isUsableImage(image)) {
+          return false;
+        }
+
+        return (
+          normalizeImageUrl(image.currentSrc || image.src) === normalizedImageUrl ||
+          getImageUrlFromImage(image) === normalizedImageUrl ||
+          getImageUrlFromElement(image) === normalizedImageUrl
+        );
+      }) || null
+    );
+  }
+
+  function getRenderedImageDataUrl(target, imageUrl) {
+    const image = findRenderedImageElement(target, imageUrl);
+    if (!image) {
+      return null;
+    }
+
+    const width = image.naturalWidth || image.width;
+    const height = image.naturalHeight || image.height;
+    if (!width || !height) {
+      return null;
+    }
+
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d");
+      if (!context) {
+        return null;
+      }
+
+      context.drawImage(image, 0, 0, width, height);
+      return canvas.toDataURL("image/png");
+    } catch (error) {
+      console.warn("Failed to reuse rendered image pixels:", error);
+      return null;
+    }
   }
 
   function getElementFromTarget(target) {
@@ -331,6 +419,39 @@ export function createCollector(siteMetadata = null) {
       parseSrcset(img.getAttribute("srcset")) ||
       normalizeImageUrl(img.currentSrc || img.src)
     );
+  }
+
+  function getImageCandidateUrlsFromElement(target) {
+    const element = getElementFromTarget(target);
+    if (!(element instanceof Element)) {
+      return [];
+    }
+
+    const urls = [];
+    const images =
+      element instanceof HTMLImageElement
+        ? [element]
+        : Array.from(element.querySelectorAll?.("img") || []);
+    for (const image of images) {
+      urls.push(getDataImageUrl(image));
+      urls.push(getPictureSourceUrl(image));
+      urls.push(parseSrcset(image.getAttribute("srcset")));
+      urls.push(image.currentSrc || image.src);
+    }
+
+    urls.push(getImageUrlFromBackground(element));
+    urls.push(getImageUrlFromBackground(element, "::before"));
+    urls.push(getImageUrlFromBackground(element, "::after"));
+    return uniqueUrls(urls);
+  }
+
+  function buildImageCandidateUrls(target, imageUrl, collectionPayload) {
+    return uniqueUrls([
+      ...(Array.isArray(collectionPayload?.candidateUrls) ? collectionPayload.candidateUrls : []),
+      collectionPayload?.imageUrl,
+      ...getImageCandidateUrlsFromElement(target),
+      imageUrl,
+    ]);
   }
 
   function getImageUrlFromBackground(element, pseudoElement) {
@@ -446,6 +567,9 @@ export function createCollector(siteMetadata = null) {
 
     const payload = {
       imageUrl: normalizeImageUrl(resolved?.imageUrl) || normalizedImageUrl,
+      candidateUrls: uniqueUrls(
+        resolved?.candidateUrls || [resolved?.imageUrl, normalizedImageUrl],
+      ),
       sourceUrl: normalizeImageUrl(resolved?.sourceUrl) || sourceUrl || window.location.href,
       metadata: cleanCollectionMetadata(resolved?.metadata),
     };
@@ -547,6 +671,7 @@ export function createCollector(siteMetadata = null) {
     getLastSourceUrl,
     getLastCollectionPayload,
     getLastRightClickTarget,
+    getRenderedImageDataUrl,
     createDownloadFrame,
     removeDownloadFrame,
   };

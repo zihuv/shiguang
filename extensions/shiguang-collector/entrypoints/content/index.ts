@@ -264,6 +264,12 @@ export default defineContentScript({
           imageUrl: collector.getLastImageUrl(),
           sourceUrl: collector.getLastSourceUrl?.() || null,
           collectionPayload: collector.getLastCollectionPayload?.() || null,
+          candidateUrls: collector.getLastCollectionPayload?.()?.candidateUrls || [],
+          renderedImageDataUrl:
+            collector.getRenderedImageDataUrl?.(
+              collector.getLastRightClickTarget?.(),
+              collector.getLastImageUrl(),
+            ) || null,
         });
         return true;
       }

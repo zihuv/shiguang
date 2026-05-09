@@ -254,7 +254,7 @@ function enhancePixivUrl(imageUrl) {
 function enhanceXiaohongshuUrl(imageUrl) {
   return imageUrl
     .replace(
-      /:\/\/[^/]+(\.xhscdn\.com\/+)[0-9]+\/+[0-9a-f]{10,}\/+([^/.?#!]+)(?:[?#!].*)?$/i,
+      /:\/\/[^/]+(\.xhscdn\.com\/+)[0-9]+\/+[0-9a-f]{10,}\/+([^?#!]+)(?:[?#!].*)?$/i,
       "://sns-img-al$1$2",
     )
     .split("!")[0];

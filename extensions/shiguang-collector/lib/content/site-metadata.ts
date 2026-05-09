@@ -19,9 +19,18 @@ function resolveCollectionPayload(input) {
   const genericMetadata = getGenericMetadata(context);
   const resolved = resolveProvider(context, genericMetadata);
   const metadata = mergeMetadata(genericMetadata, resolved.metadata);
+  const imageUrl = context.imageUrl;
+  const candidateUrls = uniqueStrings(
+    [
+      ...(Array.isArray(resolved.candidateUrls) ? resolved.candidateUrls : []),
+      normalizeUrl(resolved.imageUrl, context.pageUrl),
+      imageUrl,
+    ].filter(Boolean),
+  );
 
   return {
-    imageUrl: normalizeUrl(resolved.imageUrl, context.pageUrl) || context.imageUrl,
+    imageUrl,
+    candidateUrls,
     sourceUrl: normalizeUrl(resolved.sourceUrl, context.pageUrl) || context.pageUrl,
     metadata: {
       ...metadata,

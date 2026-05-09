@@ -157,6 +157,7 @@ export function initXiaohongshu(collector) {
       try {
         const result = await collector.requestCollectImage(imageUrl, {
           sourceUrl,
+          target: imageTarget,
           missingImageMessage: "未找到图片，请右键点击图片后重试",
         });
 
