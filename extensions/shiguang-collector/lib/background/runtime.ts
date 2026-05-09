@@ -1,7 +1,5 @@
 // 拾光采集器 - Background Runtime
 
-import { onMessage } from "../messaging";
-
 export function initBackground(): void {
   const SHIGUANG_SERVER_URL = "http://127.0.0.1:7845";
   const PREFERENCES_KEY = "shiguangCollectorPreferences";
@@ -870,12 +868,15 @@ export function initBackground(): void {
     return isShiguangServerReachable();
   }
 
-  onMessage("checkConnection", async () => ({
-    connected: await checkServerConnection(),
-  }));
-
   // Messages from content scripts and the collector panel.
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message.action === "checkConnection") {
+      checkServerConnection()
+        .then((connected) => sendResponse({ connected }))
+        .catch(() => sendResponse({ connected: false }));
+      return true;
+    }
+
     if (message.action === "collectImage") {
       const payload = message.payload || {};
       collectImage({

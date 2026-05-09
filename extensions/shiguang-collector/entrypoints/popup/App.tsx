@@ -1,7 +1,19 @@
 import { useEffect, useState } from "react";
-import { sendMessage } from "../../lib/messaging";
 
 type ConnectionState = "checking" | "connected" | "disconnected";
+
+function sendRuntimeMessage<T>(message: unknown): Promise<T> {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(message, (response) => {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        reject(new Error(error.message));
+        return;
+      }
+      resolve(response as T);
+    });
+  });
+}
 
 export function App() {
   const [connectionState, setConnectionState] = useState<ConnectionState>("checking");
@@ -11,7 +23,9 @@ export function App() {
 
     async function checkConnection() {
       try {
-        const response = await sendMessage("checkConnection");
+        const response = await sendRuntimeMessage<{ connected?: boolean }>({
+          action: "checkConnection",
+        });
         if (!cancelled) {
           setConnectionState(response?.connected ? "connected" : "disconnected");
         }
