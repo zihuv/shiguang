@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import sharp from "sharp";
 import {
   getFileFormatDefinition,
@@ -53,7 +54,9 @@ export async function createImageDragPreviewPngBuffer(
     return options.heifThumbnailProvider?.(filePath, maxEdge) ?? null;
   }
 
-  return sharp(filePath, { animated: false })
+  const imageBuffer = await readFile(filePath);
+
+  return sharp(imageBuffer, { animated: false })
     .rotate()
     .resize(maxEdge, maxEdge, {
       fit: "inside",
