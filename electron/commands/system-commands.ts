@@ -1,38 +1,19 @@
 import { app, nativeImage, shell } from "electron";
 import fssync from "node:fs";
 import path from "node:path";
-import sharp from "sharp";
 import { writeFilesToClipboard } from "../clipboard-file-references";
-import { getFileById, getFolderById, getIndexPaths, touchFileLastAccessed } from "../database";
+import { getFileById, getFolderById, touchFileLastAccessed } from "../database";
 import { checkForUpdates } from "../app/updater";
 import { getLogDir } from "../logger";
-import { hasThumbnailCachePath } from "../storage";
 import {
-  getFileFormatDefinition,
-  getFileKind,
-  normalizeExtension,
-  type FileKind,
-} from "../../src/shared/file-formats";
+  createGenericFileDragIconPngBuffer,
+  createImageDragPreviewPngBuffer,
+  DRAG_ICON_MAX_EDGE,
+} from "../drag-preview-icon";
 import type { AppState, FileRecord } from "../types";
 import { type CommandHandler, numberArg, numberArrayArg } from "./common";
 
-const DRAG_ICON_MAX_EDGE = 128;
-const DRAG_DIRECT_IMAGE_BLOCKLIST = new Set(["heic", "heif"]);
 const genericDragIconCache = new Map<string, Promise<Electron.NativeImage>>();
-
-const dragIconColorMap: Record<FileKind, { accent: string; fill: string }> = {
-  image: { accent: "#10b981", fill: "#ecfdf5" },
-  video: { accent: "#3b82f6", fill: "#eff6ff" },
-  pdf: { accent: "#ef4444", fill: "#fef2f2" },
-  audio: { accent: "#f97316", fill: "#fff7ed" },
-  archive: { accent: "#f59e0b", fill: "#fffbeb" },
-  spreadsheet: { accent: "#16a34a", fill: "#f0fdf4" },
-  presentation: { accent: "#eab308", fill: "#fefce8" },
-  word: { accent: "#0ea5e9", fill: "#f0f9ff" },
-  code: { accent: "#8b5cf6", fill: "#f5f3ff" },
-  text: { accent: "#64748b", fill: "#f8fafc" },
-  other: { accent: "#9ca3af", fill: "#f9fafb" },
-};
 
 function resizeDragIconToFit(icon: Electron.NativeImage): Electron.NativeImage {
   const size = icon.getSize();
@@ -49,75 +30,52 @@ function resizeDragIconToFit(icon: Electron.NativeImage): Electron.NativeImage {
   });
 }
 
-function canUseFilePathAsNativeImage(ext: string): boolean {
-  const normalizedExt = normalizeExtension(ext);
-  return (
-    !!getFileFormatDefinition(normalizedExt)?.directImage &&
-    !DRAG_DIRECT_IMAGE_BLOCKLIST.has(normalizedExt)
-  );
-}
-
 async function createGenericFileDragIcon(ext: string): Promise<Electron.NativeImage> {
-  const kind = getFileKind(ext);
-  const normalizedExt = normalizeExtension(ext);
-  const cacheKey = `${kind}:${normalizedExt || "file"}`;
+  const cacheKey = ext.trim().toLowerCase() || "file";
   const cachedIcon = genericDragIconCache.get(cacheKey);
   if (cachedIcon) {
     return cachedIcon;
   }
 
-  const iconPromise = renderGenericFileDragIcon(kind, normalizedExt);
+  const iconPromise = createGenericFileDragIconPngBuffer(ext).then((pngBuffer) => {
+    const icon = nativeImage.createFromBuffer(pngBuffer);
+    return icon.isEmpty() ? nativeImage.createEmpty() : icon;
+  });
   genericDragIconCache.set(cacheKey, iconPromise);
   return iconPromise;
 }
 
-async function renderGenericFileDragIcon(
-  kind: FileKind,
-  normalizedExt: string,
-): Promise<Electron.NativeImage> {
-  const color = dragIconColorMap[kind];
-  const label = normalizedExt.slice(0, 5).toUpperCase() || "FILE";
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-  <rect width="128" height="128" rx="24" fill="${color.fill}"/>
-  <path d="M34 18h39l21 21v71H34z" fill="#fff" stroke="${color.accent}" stroke-width="6" stroke-linejoin="round"/>
-  <path d="M73 18v22h21" fill="none" stroke="${color.accent}" stroke-width="6" stroke-linejoin="round"/>
-  <rect x="34" y="76" width="60" height="26" rx="8" fill="${color.accent}"/>
-  <text x="64" y="94" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif" font-size="15" font-weight="700" fill="#fff">${label}</text>
-</svg>`;
-  const pngBuffer = await sharp(Buffer.from(svg))
-    .png()
-    .toBuffer()
-    .catch(() =>
-      sharp({
-        create: {
-          width: DRAG_ICON_MAX_EDGE,
-          height: DRAG_ICON_MAX_EDGE,
-          channels: 4,
-          background: color.fill,
-        },
-      })
-        .png()
-        .toBuffer(),
-    );
-  const icon = nativeImage.createFromBuffer(pngBuffer);
-  return icon.isEmpty() ? nativeImage.createEmpty() : icon;
+async function createHeifDragPreviewPngBuffer(
+  filePath: string,
+  maxEdge: number,
+): Promise<Buffer | null> {
+  const thumbnail = await nativeImage.createThumbnailFromPath(filePath, {
+    width: maxEdge,
+    height: maxEdge,
+  });
+  if (thumbnail.isEmpty()) {
+    return null;
+  }
+  return resizeDragIconToFit(thumbnail).toPNG();
 }
 
-async function getFileDragIcon(state: AppState, file: FileRecord): Promise<Electron.NativeImage> {
-  const thumbnailPath = hasThumbnailCachePath(getIndexPaths(state.db), file.path, {
-    size: file.size,
-    modifiedAt: file.modifiedAt,
-  });
-  const thumbnailImage = thumbnailPath ? nativeImage.createFromPath(thumbnailPath) : null;
-  if (thumbnailImage && !thumbnailImage.isEmpty()) {
-    return resizeDragIconToFit(thumbnailImage);
-  }
-
-  if (canUseFilePathAsNativeImage(file.ext)) {
-    const directImage = nativeImage.createFromPath(file.path);
-    if (!directImage.isEmpty()) {
-      return resizeDragIconToFit(directImage);
+async function getFileDragIcon(file: FileRecord): Promise<Electron.NativeImage> {
+  try {
+    const previewBuffer = await createImageDragPreviewPngBuffer(file.path, file.ext, {
+      heifThumbnailProvider: createHeifDragPreviewPngBuffer,
+    });
+    if (previewBuffer) {
+      const previewIcon = nativeImage.createFromBuffer(previewBuffer);
+      if (!previewIcon.isEmpty()) {
+        return resizeDragIconToFit(previewIcon);
+      }
     }
+  } catch (error) {
+    console.error("[drag-preview] build failed", {
+      filePath: file.path,
+      ext: file.ext,
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 
   return createGenericFileDragIcon(file.ext);
@@ -125,11 +83,18 @@ async function getFileDragIcon(state: AppState, file: FileRecord): Promise<Elect
 
 async function getFallbackDragIcon(filePath: string): Promise<Electron.NativeImage> {
   const ext = path.extname(filePath).slice(1);
-  if (canUseFilePathAsNativeImage(ext)) {
-    const img = nativeImage.createFromPath(filePath);
-    if (!img.isEmpty()) {
-      return resizeDragIconToFit(img);
+  try {
+    const previewBuffer = await createImageDragPreviewPngBuffer(filePath, ext, {
+      heifThumbnailProvider: createHeifDragPreviewPngBuffer,
+    });
+    if (previewBuffer) {
+      const previewIcon = nativeImage.createFromBuffer(previewBuffer);
+      if (!previewIcon.isEmpty()) {
+        return resizeDragIconToFit(previewIcon);
+      }
     }
+  } catch {
+    // Keep external drags usable even when the source file cannot be decoded.
   }
 
   const img = await createGenericFileDragIcon(ext);
@@ -159,9 +124,7 @@ export function createSystemCommands(state: AppState): Record<string, CommandHan
       window.webContents.startDrag({
         file: paths[0],
         files: paths,
-        icon: firstFile
-          ? await getFileDragIcon(state, firstFile)
-          : await getFallbackDragIcon(paths[0]),
+        icon: firstFile ? await getFileDragIcon(firstFile) : await getFallbackDragIcon(paths[0]),
       });
     },
     open_file: async (args) => {
