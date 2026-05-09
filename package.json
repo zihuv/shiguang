@@ -38,6 +38,7 @@
     "extension:zip": "wxt zip extensions/shiguang-collector --browser chrome --mv3",
     "package:size-report": "node scripts/report-package-size.cjs release",
     "release": "node scripts/release.cjs",
+    "release:republish-draft": "bash scripts/republish-draft-release.sh",
     "docs:dev": "cd website && rspress dev",
     "docs:build": "cd website && rspress build",
     "docs:preview": "cd website && rspress preview"
