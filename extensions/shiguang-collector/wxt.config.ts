@@ -7,14 +7,7 @@ export default defineConfig({
     name: "拾光采集器",
     version: packageJson.version,
     description: "右键图片发送到拾光桌面应用",
-    permissions: [
-      "contextMenus",
-      "activeTab",
-      "storage",
-      "notifications",
-      "scripting",
-      "webNavigation",
-    ],
+    permissions: ["contextMenus", "activeTab", "storage", "notifications", "scripting"],
     host_permissions: ["<all_urls>"],
     icons: {
       16: "icons/icon16.png",

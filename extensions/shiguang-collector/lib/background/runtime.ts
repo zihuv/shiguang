@@ -6,11 +6,9 @@ export function initBackground(): void {
   const DEFAULT_IMPORT_CONCURRENCY = 10;
   const DEDUPE_WINDOW_MS = 1000;
   const IMPORT_QUEUE_LIMIT = 500;
-  const FRAME_DOWNLOAD_TIMEOUT_MS = 12000;
 
   const importQueue = [];
   const recentImportTimes = new Map();
-  const pendingFrameDownloads = new Map();
   let activeImportCount = 0;
   let cachedPreferences = {};
 
@@ -107,7 +105,12 @@ export function initBackground(): void {
     return normalized ? Number.parseInt(normalized, 10) : null;
   }
 
-  async function resolveTargetFolderForSend(tabId, folderId, targetFolderResolved = false) {
+  async function resolveTargetFolderForSend(
+    tabId,
+    folderId,
+    targetFolderResolved = false,
+    forcePrompt = false,
+  ) {
     const explicitFolderId = parseFolderId(folderId);
     if (explicitFolderId) {
       return { cancelled: false, folderId: explicitFolderId };
@@ -117,9 +120,11 @@ export function initBackground(): void {
       return { cancelled: false, folderId: null };
     }
 
-    const preferences = await readStoredPreferences();
-    if (preferences.targetFolderEnabled !== true) {
-      return { cancelled: false, folderId: null };
+    if (!forcePrompt) {
+      const preferences = await readStoredPreferences();
+      if (preferences.targetFolderEnabled !== true) {
+        return { cancelled: false, folderId: null };
+      }
     }
 
     if (!tabId) {
@@ -372,50 +377,14 @@ export function initBackground(): void {
     };
   }
 
-  function createFrameNavigationWaiter(tabId, imageUrl, token) {
-    let cleanup = () => {};
-    const promise = new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        cleanup();
-        reject(new Error("浏览器 frame 取图超时"));
-      }, FRAME_DOWNLOAD_TIMEOUT_MS);
+  async function fetchImageBytesFromPage(tabId, imageUrl) {
+    if (!tabId) {
+      throw new Error("当前标签页不可用，无法使用页面上下文取图");
+    }
 
-      cleanup = () => {
-        clearTimeout(timeout);
-        chrome.webNavigation.onCommitted.removeListener(handleCommitted);
-        pendingFrameDownloads.delete(token);
-      };
-
-      const handleCommitted = (details) => {
-        const pending = pendingFrameDownloads.get(token);
-        if (!pending || details.tabId !== tabId || details.frameId === 0) {
-          return;
-        }
-
-        try {
-          const navigatedUrl = new URL(details.url);
-          const targetUrl = new URL(imageUrl);
-          if (navigatedUrl.href !== targetUrl.href && navigatedUrl.origin !== targetUrl.origin) {
-            return;
-          }
-        } catch {
-          return;
-        }
-
-        cleanup();
-        resolve(details.frameId);
-      };
-
-      pendingFrameDownloads.set(token, { tabId, imageUrl });
-      chrome.webNavigation.onCommitted.addListener(handleCommitted);
-    });
-
-    return { promise, cancel: cleanup };
-  }
-
-  async function extractImageDataUrlFromFrame(tabId, frameId, imageUrl) {
     const results = await chrome.scripting.executeScript({
-      target: { tabId, frameIds: [frameId] },
+      target: { tabId },
+      world: "MAIN",
       func: async (url) => {
         const response = await fetch(url, {
           cache: "force-cache",
@@ -445,55 +414,15 @@ export function initBackground(): void {
 
     const result = results?.[0]?.result;
     if (!result?.dataUrl) {
-      throw new Error("浏览器 frame 未返回图片数据");
+      throw new Error("页面上下文未返回图片数据");
     }
 
-    return result;
-  }
-
-  async function fetchImageBytesViaFrame(imageUrl, tabId) {
-    if (!tabId) {
-      throw new Error("当前标签页不可用，无法使用浏览器 frame 取图");
-    }
-
-    const token = `download-frame-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const frameReady = createFrameNavigationWaiter(tabId, imageUrl, token);
-    let created;
-    try {
-      created = await chrome.tabs.sendMessage(tabId, {
-        action: "createDownloadFrame",
-        payload: { token, imageUrl },
-      });
-    } catch (error) {
-      frameReady.cancel();
-      throw new Error(`无法创建浏览器下载 frame：${getErrorMessage(error)}`);
-    }
-
-    if (!created?.success) {
-      frameReady.cancel();
-      throw new Error(created?.error || "无法创建浏览器下载 frame");
-    }
-
-    try {
-      const frameId = await frameReady.promise;
-      const extracted = await extractImageDataUrlFromFrame(tabId, frameId, imageUrl);
-      const parsed = dataUrlToFetchResult(extracted.dataUrl);
-      return {
-        ...parsed,
-        contentType: extracted.contentType || parsed.contentType,
-        finalUrl: extracted.finalUrl || imageUrl,
-      };
-    } finally {
-      pendingFrameDownloads.delete(token);
-      try {
-        await chrome.tabs.sendMessage(tabId, {
-          action: "removeDownloadFrame",
-          payload: { token },
-        });
-      } catch {
-        // The page may have navigated while the download was running.
-      }
-    }
+    const parsed = dataUrlToFetchResult(result.dataUrl);
+    return {
+      ...parsed,
+      contentType: result.contentType || parsed.contentType,
+      finalUrl: result.finalUrl || imageUrl,
+    };
   }
 
   function uniqueImportUrls(urls) {
@@ -519,13 +448,13 @@ export function initBackground(): void {
     }
 
     try {
-      return await fetchImageBytesViaFrame(imageUrl, tabId);
-    } catch (frameError) {
+      return await fetchImageBytesFromBrowser(imageUrl);
+    } catch (browserFetchError) {
       try {
-        return await fetchImageBytesFromBrowser(imageUrl);
-      } catch (fetchError) {
+        return await fetchImageBytesFromPage(tabId, imageUrl);
+      } catch (pageFetchError) {
         throw new Error(
-          `frame 取图失败：${getErrorMessage(frameError)}；浏览器 fetch 失败：${getErrorMessage(fetchError)}`,
+          `浏览器侧取图失败：${getErrorMessage(browserFetchError)}；页面上下文取图失败：${getErrorMessage(pageFetchError)}`,
         );
       }
     }
@@ -712,6 +641,7 @@ export function initBackground(): void {
     successMessage = "已发送到拾光",
     folderId,
     targetFolderResolved = false,
+    forceTargetFolder = false,
     renderedImageDataUrl = null,
   }) {
     if (!imageUrl) {
@@ -725,7 +655,12 @@ export function initBackground(): void {
       };
     }
 
-    const target = await resolveTargetFolderForSend(tabId, folderId, targetFolderResolved);
+    const target = await resolveTargetFolderForSend(
+      tabId,
+      folderId,
+      targetFolderResolved,
+      forceTargetFolder,
+    );
     if (target.cancelled) {
       return { success: false, cancelled: true, error: target.error || "已取消发送" };
     }
@@ -812,6 +747,7 @@ export function initBackground(): void {
         sourceUrl,
         metadata,
         renderedImageDataUrl,
+        forceTargetFolder: true,
         missingImageMessage: "未找到图片，请右键点击图片后重试",
         notifyOnSuccess: true,
       });
@@ -948,6 +884,7 @@ export function initBackground(): void {
         successMessage: payload.successMessage || "已发送到拾光",
         folderId: payload.folderId ?? payload.folder_id,
         targetFolderResolved: payload.targetFolderResolved === true,
+        forceTargetFolder: payload.forceTargetFolder === true,
         renderedImageDataUrl: payload.renderedImageDataUrl,
       })
         .then(sendResponse)
