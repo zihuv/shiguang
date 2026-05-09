@@ -62,10 +62,31 @@ interface RuntimeMessage {
   payload?: Record<string, unknown>;
 }
 
+const FRAME_FETCH_TIMEOUT_MS = 30_000;
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function isPixivImageUrl(value: string): boolean {
+  try {
+    return new URL(value).hostname.toLowerCase() === "i.pximg.net";
+  } catch {
+    return false;
+  }
+}
+
+export function buildImageFetchInit(): RequestInit {
+  return {
+    cache: "force-cache",
+    credentials: "include",
+  };
+}
+
+export function shouldUseFrameImageFetch(imageUrl: string): boolean {
+  return isPixivImageUrl(imageUrl);
 }
 
 export function initBackground(): void {
@@ -432,21 +453,16 @@ export function initBackground(): void {
   }
 
   async function fetchImageBytesFromBrowser(imageUrl: string): Promise<FetchImageResult> {
-    const response = await fetch(imageUrl, {
-      cache: "force-cache",
-      credentials: "include",
-    });
+    const response = await fetch(imageUrl, buildImageFetchInit());
 
     if (!response.ok) {
-      throw new Error(
-        `浏览器侧取图失败：HTTP ${response.status} ${response.statusText || ""}`.trim(),
-      );
+      throw new Error(`HTTP ${response.status} ${response.statusText || ""}`.trim());
     }
 
     const contentType = response.headers.get("content-type") || "";
     const bytes = await response.arrayBuffer();
     if (!bytes.byteLength) {
-      throw new Error("浏览器侧取图失败：图片数据为空");
+      throw new Error("图片数据为空");
     }
 
     return {
@@ -507,6 +523,136 @@ export function initBackground(): void {
     };
   }
 
+  async function fetchImageBytesViaFrame(
+    tabId: number | undefined,
+    imageUrl: string,
+  ): Promise<FetchImageResult> {
+    if (!tabId) {
+      throw new Error("当前标签页不可用，无法使用嵌入页面取图");
+    }
+
+    const frameKey = `shiguang-frame-fetch-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    let frameCreated = false;
+
+    const removeFrame = async () => {
+      if (!frameCreated) {
+        return;
+      }
+      await sendMessageToTab(tabId, {
+        action: "removeImageFetchFrame",
+        payload: { id: frameKey },
+      });
+    };
+
+    const frameId = await new Promise<number>((resolve, reject) => {
+      let settled = false;
+      let timeout: ReturnType<typeof setTimeout> | null = null;
+
+      const cleanup = () => {
+        if (timeout) {
+          clearTimeout(timeout);
+        }
+        chrome.webNavigation.onCommitted.removeListener(handleCommitted);
+        chrome.webNavigation.onErrorOccurred.removeListener(handleError);
+      };
+
+      const finish = (callback: () => void) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cleanup();
+        callback();
+      };
+
+      const matchesFrameNavigation = (
+        details: chrome.webNavigation.WebNavigationFramedCallbackDetails,
+      ) => details.tabId === tabId && details.frameId !== 0 && details.url === imageUrl;
+
+      const handleCommitted = (
+        details: chrome.webNavigation.WebNavigationFramedCallbackDetails,
+      ) => {
+        if (matchesFrameNavigation(details)) {
+          finish(() => resolve(details.frameId));
+        }
+      };
+
+      const handleError = (
+        details: chrome.webNavigation.WebNavigationFramedErrorCallbackDetails,
+      ) => {
+        if (matchesFrameNavigation(details)) {
+          finish(() => reject(new Error(details.error || "嵌入页面加载图片失败")));
+        }
+      };
+
+      timeout = setTimeout(() => {
+        finish(() => reject(new Error("嵌入页面取图超时")));
+      }, FRAME_FETCH_TIMEOUT_MS);
+
+      chrome.webNavigation.onCommitted.addListener(handleCommitted);
+      chrome.webNavigation.onErrorOccurred.addListener(handleError);
+
+      sendMessageToTab(tabId, {
+        action: "createImageFetchFrame",
+        payload: { id: frameKey, url: imageUrl },
+      })
+        .then((created) => {
+          frameCreated = created;
+          if (!created) {
+            finish(() => reject(new Error("无法创建嵌入页面取图容器")));
+          }
+        })
+        .catch((error) => {
+          finish(() => reject(error));
+        });
+    });
+
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId, frameIds: [frameId] },
+        func: async (url: string) => {
+          const response = await fetch(url, {
+            cache: "force-cache",
+            credentials: "include",
+          });
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status} ${response.statusText || ""}`.trim());
+          }
+
+          const contentType = response.headers.get("content-type") || "application/octet-stream";
+          const blob = await response.blob();
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onerror = () => reject(new Error("读取图片数据失败"));
+            reader.onloadend = () => resolve(String(reader.result || ""));
+            reader.readAsDataURL(blob);
+          });
+
+          return {
+            dataUrl,
+            contentType,
+            finalUrl: response.url || url,
+          };
+        },
+        args: [imageUrl],
+      });
+
+      const result = results?.[0]?.result;
+      if (!result?.dataUrl) {
+        throw new Error("嵌入页面未返回图片数据");
+      }
+
+      const parsed = dataUrlToFetchResult(result.dataUrl);
+      return {
+        ...parsed,
+        contentType: result.contentType || parsed.contentType,
+        finalUrl: result.finalUrl || imageUrl,
+      };
+    } finally {
+      await removeFrame();
+    }
+  }
+
   function uniqueImportUrls(urls: Iterable<unknown>): string[] {
     const seen = new Set<string>();
     const unique: string[] = [];
@@ -538,6 +684,16 @@ export function initBackground(): void {
       try {
         return await fetchImageBytesFromPage(tabId, imageUrl);
       } catch (pageFetchError) {
+        if (shouldUseFrameImageFetch(imageUrl)) {
+          try {
+            return await fetchImageBytesViaFrame(tabId, imageUrl);
+          } catch (frameFetchError) {
+            throw new Error(
+              `浏览器侧取图失败：${getErrorMessage(browserFetchError)}；页面上下文取图失败：${getErrorMessage(pageFetchError)}；嵌入页面取图失败：${getErrorMessage(frameFetchError)}`,
+            );
+          }
+        }
+
         throw new Error(
           `浏览器侧取图失败：${getErrorMessage(browserFetchError)}；页面上下文取图失败：${getErrorMessage(pageFetchError)}`,
         );
@@ -858,8 +1014,8 @@ export function initBackground(): void {
     }
 
     try {
-      await chrome.tabs.sendMessage(tabId, message);
-      return true;
+      const response = await chrome.tabs.sendMessage(tabId, message);
+      return response?.success !== false;
     } catch (error) {
       console.warn("Failed to send message to tab:", error);
       return false;

@@ -16,9 +16,11 @@ interface DragPreviewSize {
 interface ContentRuntimeMessage {
   action?: string;
   payload?: {
+    id?: string;
     message?: string;
     type?: ToastType;
     duration?: number;
+    url?: string;
   };
 }
 
@@ -30,6 +32,7 @@ export default defineContentScript({
     const panel = createPanel(collector);
     const DRAG_PREVIEW_ID = "shiguang-drag-preview-container";
     const DRAG_PREVIEW_MAX_SIZE = 112;
+    const imageFetchFrames = new Map<string, HTMLIFrameElement>();
 
     initSiteAdapters(collector);
 
@@ -66,6 +69,43 @@ export default defineContentScript({
       ].join(";");
       (document.body || document.documentElement).appendChild(container);
       return container;
+    }
+
+    function createImageFetchFrame(id: string, url: string): boolean {
+      if (!id || !/^https?:\/\//i.test(url)) {
+        return false;
+      }
+
+      imageFetchFrames.get(id)?.remove();
+      const frame = document.createElement("iframe");
+      frame.id = id;
+      frame.src = url;
+      frame.sandbox.add("allow-scripts", "allow-same-origin");
+      frame.setAttribute("aria-hidden", "true");
+      frame.style.cssText = [
+        "position: fixed",
+        "left: -100000px",
+        "top: 0",
+        "width: 1px",
+        "height: 1px",
+        "border: 0",
+        "opacity: 0",
+        "pointer-events: none",
+      ].join(";");
+      imageFetchFrames.set(id, frame);
+      (document.body || document.documentElement).appendChild(frame);
+      return true;
+    }
+
+    function removeImageFetchFrame(id: string): boolean {
+      const frame = imageFetchFrames.get(id);
+      if (!frame) {
+        return false;
+      }
+
+      frame.remove();
+      imageFetchFrames.delete(id);
+      return true;
     }
 
     function getCompactDragPreviewSize(image: HTMLImageElement): DragPreviewSize | null {
@@ -311,6 +351,22 @@ export default defineContentScript({
             payload.duration || 3000,
           );
           sendResponse({ success: true });
+          return true;
+        }
+
+        if (message.action === "createImageFetchFrame") {
+          const payload = message.payload || {};
+          sendResponse({
+            success: createImageFetchFrame(payload.id || "", payload.url || ""),
+          });
+          return true;
+        }
+
+        if (message.action === "removeImageFetchFrame") {
+          const payload = message.payload || {};
+          sendResponse({
+            success: removeImageFetchFrame(payload.id || ""),
+          });
           return true;
         }
 
