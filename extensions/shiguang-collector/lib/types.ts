@@ -113,6 +113,7 @@ export interface Collector {
 export interface FolderRecord {
   id: string | number;
   name: string;
+  parentId?: string | number | null;
   children?: FolderRecord[];
 }
 

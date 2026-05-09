@@ -1,20 +1,18 @@
 // 拾光采集器 - Background Runtime
 
 import type { CollectionMetadata, ToastType } from "../types";
-
-interface NormalizedPreferences {
-  dragDockEnabled?: boolean;
-  importConcurrency: string;
-  targetFolderEnabled: boolean;
-}
-
-type PreferencePatch = Partial<NormalizedPreferences>;
-
-interface FetchImageResult {
-  bytes: ArrayBuffer;
-  contentType: string;
-  finalUrl: string;
-}
+import { normalizeOptionalFolderId, parseFolderId } from "../folders";
+import { filenameFromImageUrl, resolveImageBytes } from "./image-bytes";
+export { buildImageFetchInit, shouldUseFrameImageFetch } from "./image-bytes";
+import { BackgroundPreferences, DEFAULT_IMPORT_CONCURRENCY } from "./preferences";
+import {
+  asRecord,
+  fetchFoldersFromShiguang,
+  fetchShiguang,
+  getErrorMessage,
+  isShiguangServerReachable,
+  readShiguangJson,
+} from "./shiguang-api";
 
 interface ImportTask {
   tabId?: number;
@@ -62,142 +60,17 @@ interface RuntimeMessage {
   payload?: Record<string, unknown>;
 }
 
-const FRAME_FETCH_TIMEOUT_MS = 30_000;
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function isPixivImageUrl(value: string): boolean {
-  try {
-    return new URL(value).hostname.toLowerCase() === "i.pximg.net";
-  } catch {
-    return false;
-  }
-}
-
-export function buildImageFetchInit(): RequestInit {
-  return {
-    cache: "force-cache",
-    credentials: "include",
-  };
-}
-
-export function shouldUseFrameImageFetch(imageUrl: string): boolean {
-  return isPixivImageUrl(imageUrl);
-}
-
 export function initBackground(): void {
-  const SHIGUANG_SERVER_URL = "http://127.0.0.1:7845";
-  const PREFERENCES_KEY = "shiguangCollectorPreferences";
-  const DEFAULT_IMPORT_CONCURRENCY = 10;
   const DEDUPE_WINDOW_MS = 1000;
   const IMPORT_QUEUE_LIMIT = 500;
 
   const importQueue: QueuedImportTask[] = [];
   const recentImportTimes = new Map<string, number>();
+  const preferences = new BackgroundPreferences();
   let activeImportCount = 0;
-  let cachedPreferences: NormalizedPreferences = normalizePreferences({});
 
-  function hasOwn(value: object, key: string): boolean {
-    return Object.prototype.hasOwnProperty.call(value, key);
-  }
-
-  function readStoredPreferences(): Promise<NormalizedPreferences> {
-    return new Promise((resolve) => {
-      chrome.storage.sync.get(PREFERENCES_KEY, (result) => {
-        cachedPreferences = normalizePreferences(result?.[PREFERENCES_KEY]);
-        resolve(cachedPreferences);
-      });
-    });
-  }
-
-  void readStoredPreferences();
-
-  chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== "sync" || !changes[PREFERENCES_KEY]) {
-      return;
-    }
-
-    cachedPreferences = normalizePreferences(changes[PREFERENCES_KEY].newValue);
-    drainImportQueue();
-  });
-
-  function normalizePreferences(value: unknown): NormalizedPreferences {
-    const record = asRecord(value);
-    if (!Object.keys(record).length) {
-      return {
-        importConcurrency: "",
-        targetFolderEnabled: false,
-      };
-    }
-
-    const preferences: NormalizedPreferences = {
-      importConcurrency: normalizeOptionalNumberText(record.importConcurrency),
-      targetFolderEnabled: record.targetFolderEnabled === true,
-    };
-
-    if (record.dragDockEnabled === false || record.dragDockEnabled === true) {
-      preferences.dragDockEnabled = record.dragDockEnabled;
-    }
-
-    return preferences;
-  }
-
-  function normalizePreferencePatch(value: unknown): PreferencePatch {
-    const record = asRecord(value);
-    if (!Object.keys(record).length) {
-      return {};
-    }
-
-    const patch: PreferencePatch = {};
-    for (const key of ["importConcurrency"]) {
-      if (hasOwn(record, key)) {
-        patch.importConcurrency = normalizeOptionalNumberText(record[key]);
-      }
-    }
-
-    if (hasOwn(record, "targetFolderEnabled")) {
-      patch.targetFolderEnabled = record.targetFolderEnabled === true;
-    }
-
-    if (hasOwn(record, "dragDockEnabled")) {
-      if (record.dragDockEnabled === false || record.dragDockEnabled === true) {
-        patch.dragDockEnabled = record.dragDockEnabled;
-      }
-    }
-
-    return patch;
-  }
-
-  function normalizeOptionalNumberText(value: unknown): string {
-    if (value === null || value === undefined) {
-      return "";
-    }
-
-    const text = String(value).trim();
-    return /^\d+$/.test(text) ? text : "";
-  }
-
-  function normalizeOptionalFolderId(value: unknown): string {
-    if (value === null || value === undefined || value === "") {
-      return "";
-    }
-
-    const text = String(value).trim();
-    if (!/^\d+$/.test(text)) {
-      return "";
-    }
-
-    return Number.parseInt(text, 10) > 0 ? text : "";
-  }
-
-  function parseFolderId(folderId: unknown): number | null {
-    const normalized = normalizeOptionalFolderId(folderId);
-    return normalized ? Number.parseInt(normalized, 10) : null;
-  }
+  void preferences.read();
+  preferences.watch(drainImportQueue);
 
   async function resolveTargetFolderForSend(
     tabId: number | undefined,
@@ -215,8 +88,8 @@ export function initBackground(): void {
     }
 
     if (!forcePrompt) {
-      const preferences = await readStoredPreferences();
-      if (preferences.targetFolderEnabled !== true) {
+      const storedPreferences = await preferences.read();
+      if (storedPreferences.targetFolderEnabled !== true) {
         return { cancelled: false, folderId: null };
       }
     }
@@ -248,12 +121,7 @@ export function initBackground(): void {
   }
 
   function getImportConcurrency(): number {
-    const configured = Number.parseInt(cachedPreferences.importConcurrency || "", 10);
-    if (!Number.isFinite(configured) || configured <= 0) {
-      return DEFAULT_IMPORT_CONCURRENCY;
-    }
-
-    return Math.min(configured, 20);
+    return preferences.getImportConcurrency();
   }
 
   function cleanRecentImportTimes(now = Date.now()): void {
@@ -290,444 +158,8 @@ export function initBackground(): void {
     }
   }
 
-  function getErrorMessage(error: unknown): string {
-    const message = error instanceof Error ? error.message : String(error || "未知错误");
-    if (message === "Failed to fetch") {
-      return "无法连接到拾光本地服务（127.0.0.1:7845），请确保拾光应用正在运行";
-    }
-    return message;
-  }
-
-  async function isShiguangServerReachable(): Promise<boolean> {
-    try {
-      const response = await fetch(`${SHIGUANG_SERVER_URL}/api/health`, {
-        cache: "no-store",
-      });
-      return response.ok;
-    } catch {
-      return false;
-    }
-  }
-
-  async function fetchShiguang(endpoint: string, options: RequestInit = {}): Promise<Response> {
-    const url = `${SHIGUANG_SERVER_URL}${endpoint}`;
-    try {
-      return await fetch(url, options);
-    } catch (error) {
-      const rawMessage = error instanceof Error ? error.message : String(error || "网络错误");
-      const reachable = await isShiguangServerReachable();
-      if (!reachable) {
-        throw new Error(
-          `无法连接到拾光本地服务（${SHIGUANG_SERVER_URL}）。请确认拾光应用正在运行，且浏览器扩展允许访问 127.0.0.1。原始错误：${rawMessage}`,
-        );
-      }
-
-      throw new Error(
-        `拾光本地服务可连接，但请求 ${endpoint} 失败。可能被浏览器、代理或安全软件拦截。原始错误：${rawMessage}`,
-      );
-    }
-  }
-
-  function parseServerErrorText(errorText: string): string {
-    if (!errorText) {
-      return "";
-    }
-
-    try {
-      const payload = JSON.parse(errorText);
-      const payloadRecord = asRecord(payload);
-      if (typeof payloadRecord.message === "string" && payloadRecord.message) {
-        return payloadRecord.message;
-      }
-      if (typeof payloadRecord.error === "string" && payloadRecord.error) {
-        return payloadRecord.error;
-      }
-    } catch {
-      // Keep plain text errors as-is.
-    }
-
-    return errorText;
-  }
-
-  async function readShiguangJson(response: Response): Promise<Record<string, unknown>> {
-    if (!response.ok) {
-      const errorText = await response.text();
-      const message =
-        parseServerErrorText(errorText) ||
-        `拾光本地服务返回 HTTP ${response.status} ${response.statusText || ""}`.trim();
-      throw new Error(message);
-    }
-
-    const result = asRecord(await response.json());
-    if (!result.success) {
-      throw new Error(typeof result.error === "string" ? result.error : "Unknown error");
-    }
-
-    return result;
-  }
-
-  function extensionFromContentType(contentType: unknown): string {
-    const mime = String(contentType || "")
-      .split(";")[0]
-      .trim()
-      .toLowerCase();
-    const extensions: Record<string, string> = {
-      "image/apng": "png",
-      "image/avif": "avif",
-      "image/bmp": "bmp",
-      "image/gif": "gif",
-      "image/heic": "heic",
-      "image/heif": "heif",
-      "image/jpeg": "jpg",
-      "image/jpg": "jpg",
-      "image/png": "png",
-      "image/svg+xml": "svg",
-      "image/tiff": "tiff",
-      "image/webp": "webp",
-    };
-    return extensions[mime] || "";
-  }
-
-  function filenameFromImageUrl(imageUrl: string, contentType: string): string {
-    let filename = "browser-image";
-    try {
-      const url = new URL(imageUrl);
-      if (url.protocol !== "data:") {
-        const name = decodeURIComponent(url.pathname.split("/").filter(Boolean).pop() || "");
-        if (name) {
-          filename = name;
-        }
-      }
-    } catch {
-      // Keep fallback filename.
-    }
-
-    filename = filename.replace(/[\\/:*?"<>|]+/g, "_").slice(0, 160) || "browser-image";
-    if (/\.[a-z0-9]{1,8}$/i.test(filename)) {
-      return filename;
-    }
-
-    const ext = extensionFromContentType(contentType);
-    return ext ? `${filename}.${ext}` : filename;
-  }
-
-  function splitDataUrl(dataUrl: string): { bytes: ArrayBuffer; contentType: string } {
-    const match = String(dataUrl || "").match(/^data:([^;,]+)?((?:;[^,]+)*),(.*)$/s);
-    if (!match) {
-      throw new Error("图片数据格式无效");
-    }
-
-    const contentType = match[1] || "application/octet-stream";
-    const flags = match[2] || "";
-    const data = match[3] || "";
-    if (flags.includes(";base64")) {
-      const binary = atob(data);
-      const bytes = new Uint8Array(binary.length);
-      for (let index = 0; index < binary.length; index += 1) {
-        bytes[index] = binary.charCodeAt(index);
-      }
-      return { bytes: bytes.buffer, contentType };
-    }
-
-    return {
-      bytes: new TextEncoder().encode(decodeURIComponent(data)).buffer,
-      contentType,
-    };
-  }
-
-  function isDataUrl(value: unknown): value is string {
-    return typeof value === "string" && value.startsWith("data:");
-  }
-
-  function isHttpUrl(value: unknown): value is string {
-    return typeof value === "string" && /^https?:\/\//i.test(value);
-  }
-
-  function dataUrlToFetchResult(dataUrl: string): FetchImageResult {
-    const { bytes, contentType } = splitDataUrl(dataUrl);
-    return {
-      bytes,
-      contentType,
-      finalUrl: dataUrl,
-    };
-  }
-
-  async function fetchImageBytesFromBrowser(imageUrl: string): Promise<FetchImageResult> {
-    const response = await fetch(imageUrl, buildImageFetchInit());
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status} ${response.statusText || ""}`.trim());
-    }
-
-    const contentType = response.headers.get("content-type") || "";
-    const bytes = await response.arrayBuffer();
-    if (!bytes.byteLength) {
-      throw new Error("图片数据为空");
-    }
-
-    return {
-      bytes,
-      contentType,
-      finalUrl: response.url || imageUrl,
-    };
-  }
-
-  async function fetchImageBytesFromPage(
-    tabId: number | undefined,
-    imageUrl: string,
-  ): Promise<FetchImageResult> {
-    if (!tabId) {
-      throw new Error("当前标签页不可用，无法使用页面上下文取图");
-    }
-
-    const results = await chrome.scripting.executeScript({
-      target: { tabId },
-      world: "MAIN",
-      func: async (url: string) => {
-        const response = await fetch(url, {
-          cache: "force-cache",
-          credentials: "include",
-        });
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status} ${response.statusText || ""}`.trim());
-        }
-
-        const contentType = response.headers.get("content-type") || "application/octet-stream";
-        const blob = await response.blob();
-        const dataUrl = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onerror = () => reject(new Error("读取图片数据失败"));
-          reader.onloadend = () => resolve(String(reader.result || ""));
-          reader.readAsDataURL(blob);
-        });
-
-        return {
-          dataUrl,
-          contentType,
-          finalUrl: response.url || url,
-        };
-      },
-      args: [imageUrl],
-    });
-
-    const result = results?.[0]?.result;
-    if (!result?.dataUrl) {
-      throw new Error("页面上下文未返回图片数据");
-    }
-
-    const parsed = dataUrlToFetchResult(result.dataUrl);
-    return {
-      ...parsed,
-      contentType: result.contentType || parsed.contentType,
-      finalUrl: result.finalUrl || imageUrl,
-    };
-  }
-
-  async function fetchImageBytesViaFrame(
-    tabId: number | undefined,
-    imageUrl: string,
-  ): Promise<FetchImageResult> {
-    if (!tabId) {
-      throw new Error("当前标签页不可用，无法使用嵌入页面取图");
-    }
-
-    const frameKey = `shiguang-frame-fetch-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    let frameCreated = false;
-
-    const removeFrame = async () => {
-      if (!frameCreated) {
-        return;
-      }
-      await sendMessageToTab(tabId, {
-        action: "removeImageFetchFrame",
-        payload: { id: frameKey },
-      });
-    };
-
-    const frameId = await new Promise<number>((resolve, reject) => {
-      let settled = false;
-      let timeout: ReturnType<typeof setTimeout> | null = null;
-
-      const cleanup = () => {
-        if (timeout) {
-          clearTimeout(timeout);
-        }
-        chrome.webNavigation.onCommitted.removeListener(handleCommitted);
-        chrome.webNavigation.onErrorOccurred.removeListener(handleError);
-      };
-
-      const finish = (callback: () => void) => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        cleanup();
-        callback();
-      };
-
-      const matchesFrameNavigation = (
-        details: chrome.webNavigation.WebNavigationFramedCallbackDetails,
-      ) => details.tabId === tabId && details.frameId !== 0 && details.url === imageUrl;
-
-      const handleCommitted = (
-        details: chrome.webNavigation.WebNavigationFramedCallbackDetails,
-      ) => {
-        if (matchesFrameNavigation(details)) {
-          finish(() => resolve(details.frameId));
-        }
-      };
-
-      const handleError = (
-        details: chrome.webNavigation.WebNavigationFramedErrorCallbackDetails,
-      ) => {
-        if (matchesFrameNavigation(details)) {
-          finish(() => reject(new Error(details.error || "嵌入页面加载图片失败")));
-        }
-      };
-
-      timeout = setTimeout(() => {
-        finish(() => reject(new Error("嵌入页面取图超时")));
-      }, FRAME_FETCH_TIMEOUT_MS);
-
-      chrome.webNavigation.onCommitted.addListener(handleCommitted);
-      chrome.webNavigation.onErrorOccurred.addListener(handleError);
-
-      sendMessageToTab(tabId, {
-        action: "createImageFetchFrame",
-        payload: { id: frameKey, url: imageUrl },
-      })
-        .then((created) => {
-          frameCreated = created;
-          if (!created) {
-            finish(() => reject(new Error("无法创建嵌入页面取图容器")));
-          }
-        })
-        .catch((error) => {
-          finish(() => reject(error));
-        });
-    });
-
-    try {
-      const results = await chrome.scripting.executeScript({
-        target: { tabId, frameIds: [frameId] },
-        func: async (url: string) => {
-          const response = await fetch(url, {
-            cache: "force-cache",
-            credentials: "include",
-          });
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status} ${response.statusText || ""}`.trim());
-          }
-
-          const contentType = response.headers.get("content-type") || "application/octet-stream";
-          const blob = await response.blob();
-          const dataUrl = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onerror = () => reject(new Error("读取图片数据失败"));
-            reader.onloadend = () => resolve(String(reader.result || ""));
-            reader.readAsDataURL(blob);
-          });
-
-          return {
-            dataUrl,
-            contentType,
-            finalUrl: response.url || url,
-          };
-        },
-        args: [imageUrl],
-      });
-
-      const result = results?.[0]?.result;
-      if (!result?.dataUrl) {
-        throw new Error("嵌入页面未返回图片数据");
-      }
-
-      const parsed = dataUrlToFetchResult(result.dataUrl);
-      return {
-        ...parsed,
-        contentType: result.contentType || parsed.contentType,
-        finalUrl: result.finalUrl || imageUrl,
-      };
-    } finally {
-      await removeFrame();
-    }
-  }
-
-  function uniqueImportUrls(urls: Iterable<unknown>): string[] {
-    const seen = new Set<string>();
-    const unique: string[] = [];
-    for (const url of urls) {
-      if (typeof url !== "string" || !url.trim() || seen.has(url)) {
-        continue;
-      }
-      seen.add(url);
-      unique.push(url);
-    }
-    return unique;
-  }
-
-  async function resolveImageBytesFromUrl(
-    imageUrl: string,
-    tabId: number | undefined,
-  ): Promise<FetchImageResult> {
-    if (isDataUrl(imageUrl)) {
-      return dataUrlToFetchResult(imageUrl);
-    }
-
-    if (!isHttpUrl(imageUrl)) {
-      throw new Error("仅支持采集浏览器可读取的图片数据");
-    }
-
-    try {
-      return await fetchImageBytesFromBrowser(imageUrl);
-    } catch (browserFetchError) {
-      try {
-        return await fetchImageBytesFromPage(tabId, imageUrl);
-      } catch (pageFetchError) {
-        if (shouldUseFrameImageFetch(imageUrl)) {
-          try {
-            return await fetchImageBytesViaFrame(tabId, imageUrl);
-          } catch (frameFetchError) {
-            throw new Error(
-              `浏览器侧取图失败：${getErrorMessage(browserFetchError)}；页面上下文取图失败：${getErrorMessage(pageFetchError)}；嵌入页面取图失败：${getErrorMessage(frameFetchError)}`,
-            );
-          }
-        }
-
-        throw new Error(
-          `浏览器侧取图失败：${getErrorMessage(browserFetchError)}；页面上下文取图失败：${getErrorMessage(pageFetchError)}`,
-        );
-      }
-    }
-  }
-
-  async function resolveImageBytes(task: ImportTask): Promise<FetchImageResult> {
-    const candidateUrls = uniqueImportUrls([
-      ...(Array.isArray(task.candidateUrls) ? task.candidateUrls : []),
-      task.imageUrl,
-    ]);
-    const errors: string[] = [];
-
-    for (const candidateUrl of candidateUrls) {
-      try {
-        return await resolveImageBytesFromUrl(candidateUrl, task.tabId);
-      } catch (error) {
-        errors.push(`${candidateUrl}: ${getErrorMessage(error)}`);
-      }
-    }
-
-    if (isDataUrl(task.renderedImageDataUrl)) {
-      return {
-        ...dataUrlToFetchResult(task.renderedImageDataUrl),
-        finalUrl: task.imageUrl,
-      };
-    }
-
-    throw new Error(errors.length ? errors.join("；") : "未找到可采集的图片数据");
-  }
-
   async function importImageBytesToShiguang(task: ImportTask): Promise<Record<string, unknown>> {
-    const { bytes, contentType, finalUrl } = await resolveImageBytes(task);
+    const { bytes, contentType, finalUrl } = await resolveImageBytes(task, { sendMessageToTab });
     return importBytesToShiguang(bytes, {
       filename: filenameFromImageUrl(finalUrl || task.imageUrl, contentType),
       contentType,
@@ -1054,11 +486,6 @@ export function initBackground(): void {
     sendResponse({ success: true, result });
   }
 
-  async function fetchFoldersFromShiguang(): Promise<Record<string, unknown>> {
-    const response = await fetchShiguang("/api/folders");
-    return readShiguangJson(response);
-  }
-
   chrome.action.onClicked.addListener(async (tab) => {
     const opened = await sendMessageToTab(tab?.id, { action: "togglePanel" });
     if (!opened) {
@@ -1159,9 +586,9 @@ export function initBackground(): void {
     }
 
     if (message.action === "getPreferences") {
-      readStoredPreferences().then((preferences) => {
+      preferences.read().then((storedPreferences) => {
         sendResponse({
-          preferences,
+          preferences: storedPreferences,
           defaults: {
             importConcurrency: DEFAULT_IMPORT_CONCURRENCY,
           },
@@ -1178,15 +605,9 @@ export function initBackground(): void {
     }
 
     if (message.action === "updatePreferences") {
-      chrome.storage.sync.get(PREFERENCES_KEY, (result) => {
-        const current = normalizePreferences(result?.[PREFERENCES_KEY]);
-        const patch = normalizePreferencePatch(message.payload || {});
-        const next = normalizePreferences({ ...current, ...patch });
-        chrome.storage.sync.set({ [PREFERENCES_KEY]: next }, () => {
-          cachedPreferences = next;
-          drainImportQueue();
-          sendResponse({ success: true, preferences: next });
-        });
+      preferences.update(message.payload || {}).then((next) => {
+        drainImportQueue();
+        sendResponse({ success: true, preferences: next });
       });
       return true;
     }

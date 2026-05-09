@@ -1,6 +1,12 @@
 // Content Script Drag Dock
 
 import { collectorPreferences } from "../preferences";
+import {
+  buildFolderTargets,
+  DEFAULT_FOLDER_TARGET_ID,
+  findDefaultFolderId,
+  parseFolderId,
+} from "../folders";
 import { dragDockStyle } from "./drag-dock-style";
 import type { CollectionPayload, Collector, DragDock, FolderRecord, FolderTarget } from "../types";
 
@@ -26,7 +32,6 @@ export function createDragDock(collector: Collector): DragDock {
   const DRAG_DOCK_ID = "shiguang-drag-dock";
   const DRAG_DOCK_STYLE_ID = "shiguang-drag-dock-style";
   const DRAG_DOCK_HIDE_DELAY = 140;
-  const DEFAULT_FOLDER_TARGET_ID = "__default__";
   const DRAG_PANEL_MARGIN = 12;
   const DRAG_PANEL_GAP = 24;
   const FOLDER_LIST_AUTO_SCROLL_EDGE = 24;
@@ -267,41 +272,6 @@ export function createDragDock(collector: Collector): DragDock {
     });
   }
 
-  function parseOptionalInt(value: unknown): number | null {
-    if (value === null || value === undefined || value === "") {
-      return null;
-    }
-
-    const parsed = Number.parseInt(String(value), 10);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-  }
-
-  function flattenFolders(
-    folders: FolderRecord[] = [],
-    defaultFolderId: number | null,
-    depth = 0,
-    trail: string[] = [],
-  ): FolderTarget[] {
-    const rows: FolderTarget[] = [];
-    for (const folder of folders || []) {
-      const nextTrail = [...trail, folder.name].filter(Boolean);
-      if (defaultFolderId && folder.id === defaultFolderId) {
-        rows.push(...flattenFolders(folder.children || [], defaultFolderId, depth + 1, nextTrail));
-        continue;
-      }
-
-      rows.push({
-        id: String(folder.id),
-        folderId: String(folder.id),
-        name: folder.name,
-        depth,
-        pathLabel: nextTrail.join("/"),
-      });
-      rows.push(...flattenFolders(folder.children || [], defaultFolderId, depth + 1, nextTrail));
-    }
-    return rows;
-  }
-
   async function loadFolderTargets() {
     if (folderTargetsLoading) {
       return;
@@ -317,27 +287,11 @@ export function createDragDock(collector: Collector): DragDock {
         throw new Error(response?.error || "无法读取拾光文件夹");
       }
 
-      const defaultFolderId = parseOptionalInt(response.default_folder_id);
-      folderTargets = [
-        {
-          id: DEFAULT_FOLDER_TARGET_ID,
-          folderId: "",
-          name: "浏览器采集",
-          pathLabel: "浏览器采集",
-          depth: 0,
-        },
-        ...flattenFolders(response.folders || [], defaultFolderId),
-      ];
+      const defaultFolderId =
+        parseFolderId(response.default_folder_id) || findDefaultFolderId(response.folders || []);
+      folderTargets = buildFolderTargets(response.folders || [], defaultFolderId);
     } catch (error) {
-      folderTargets = [
-        {
-          id: DEFAULT_FOLDER_TARGET_ID,
-          folderId: "",
-          name: "浏览器采集",
-          pathLabel: "浏览器采集",
-          depth: 0,
-        },
-      ];
+      folderTargets = buildFolderTargets([], null);
       folderTargetsError = collector.getErrorMessage(error);
     } finally {
       folderTargetsLoading = false;

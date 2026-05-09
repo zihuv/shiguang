@@ -2,6 +2,7 @@
 
 import { panelStyle } from "./panel-style";
 import { cropDataUrl, escapeHtml, parseOptionalInt, scanPageImages } from "./panel-utils";
+import { findDefaultFolderId, flattenFolderRows } from "../folders";
 import type {
   CollectionMetadata,
   CollectionPayload,
@@ -29,13 +30,6 @@ interface RuntimeResponse {
   default_folder_id?: unknown;
   dataUrl?: string;
   result?: unknown;
-}
-
-interface FolderRow {
-  id: string | number;
-  name: string;
-  depth: number;
-  pathLabel: string;
 }
 
 interface ScannedImage {
@@ -132,48 +126,12 @@ export function createPanel(collector: Collector): CollectorPanel {
     throw new Error(response?.error || "偏好保存失败");
   }
 
-  function findDefaultFolderId(folders: FolderRecord[]): string | number | null {
-    const namedFolders: Array<FolderRecord & { parentId?: string | number | null }> = [];
-    const visit = (items: FolderRecord[] = []) => {
-      for (const folder of items) {
-        if (folder.name === "浏览器采集") {
-          namedFolders.push(folder);
-        }
-        visit(folder.children || []);
-      }
-    };
-
-    visit(folders);
-    const rootFolder = namedFolders.find((folder) => folder.parentId === null);
-    return rootFolder?.id || namedFolders[0]?.id || null;
-  }
-
-  function flattenFolders(folders: FolderRecord[], depth = 0, trail: string[] = []): FolderRow[] {
-    const rows: FolderRow[] = [];
-    for (const folder of folders || []) {
-      if (defaultFolderId && folder.id === defaultFolderId) {
-        rows.push(...flattenFolders(folder.children || [], depth + 1, [...trail, folder.name]));
-        continue;
-      }
-
-      const nextTrail = [...trail, folder.name];
-      rows.push({
-        id: folder.id,
-        name: folder.name,
-        depth,
-        pathLabel: nextTrail.join("/"),
-      });
-      rows.push(...flattenFolders(folder.children || [], depth + 1, nextTrail));
-    }
-    return rows;
-  }
-
   function isTargetFolderEnabled(): boolean {
     return preferences.targetFolderEnabled === true;
   }
 
   function renderFolderField(id: string, selectedFolderId = ""): string {
-    const options = flattenFolders(folderTree)
+    const options = flattenFolderRows(folderTree, defaultFolderId)
       .map((folder) => {
         const selected = String(folder.id) === selectedFolderId ? "selected" : "";
         return [

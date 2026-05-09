@@ -1,6 +1,7 @@
 // 拾光采集器 - 页面内面板工具
 
 import type { CollectionMetadata, Collector } from "../types";
+import { IMAGE_DATA_ATTRIBUTES, parseSrcset } from "./image-urls";
 
 interface ScannedImage {
   url: string;
@@ -22,47 +23,6 @@ export function escapeHtml(value: unknown): string {
 export function parseOptionalInt(value: unknown): number | null {
   const parsed = Number.parseInt(String(value || "").trim(), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-const IMAGE_DATA_ATTRIBUTES = [
-  "full",
-  "fullSize",
-  "large",
-  "original",
-  "originalSrc",
-  "src",
-  "lazy",
-  "pinMedia",
-  "image",
-  "url",
-];
-
-function parseSrcset(srcset: string | null | undefined, collector: Collector): string | null {
-  if (typeof srcset !== "string" || !srcset.trim()) {
-    return null;
-  }
-
-  const candidates = srcset
-    .split(",")
-    .map((candidate) => {
-      const parts = candidate.trim().split(/\s+/);
-      const url = parts[0];
-      const descriptor = parts[1] || "";
-      const width = descriptor.endsWith("w") ? Number.parseInt(descriptor, 10) : 0;
-      const density = descriptor.endsWith("x") ? Number.parseFloat(descriptor) : 0;
-      return {
-        url,
-        score: Number.isFinite(width) && width > 0 ? width : density * 1000,
-      };
-    })
-    .filter((candidate) => candidate.url);
-
-  if (!candidates.length) {
-    return null;
-  }
-
-  candidates.sort((left, right) => right.score - left.score);
-  return collector.normalizeImageUrl(candidates[0].url);
 }
 
 export function scanPageImages(collector: Collector): ScannedImage[] {
@@ -121,13 +81,13 @@ export function scanPageImages(collector: Collector): ScannedImage[] {
       img,
     );
     addImage(
-      parseSrcset(img.getAttribute("srcset"), collector),
+      parseSrcset(img.getAttribute("srcset")),
       img.naturalWidth || img.width,
       img.naturalHeight || img.height,
       img,
     );
     addImage(
-      parseSrcset(img.dataset.srcset, collector),
+      parseSrcset(img.dataset.srcset),
       img.naturalWidth || img.width,
       img.naturalHeight || img.height,
       img,
@@ -151,7 +111,7 @@ export function scanPageImages(collector: Collector): ScannedImage[] {
   });
 
   document.querySelectorAll("source[srcset]").forEach((source) => {
-    addImage(parseSrcset(source.getAttribute("srcset"), collector), 0, 0, source);
+    addImage(parseSrcset(source.getAttribute("srcset")), 0, 0, source);
   });
 
   document
@@ -161,7 +121,7 @@ export function scanPageImages(collector: Collector): ScannedImage[] {
     .forEach((element) => {
       addImage(collector.getImageUrlFromElement(element), 0, 0, element);
       const htmlElement = element instanceof HTMLElement ? element : null;
-      addImage(parseSrcset(htmlElement?.dataset.srcset, collector), 0, 0, element);
+      addImage(parseSrcset(htmlElement?.dataset.srcset), 0, 0, element);
       for (const attribute of IMAGE_DATA_ATTRIBUTES) {
         addImage(htmlElement?.dataset[attribute], 0, 0, element);
       }
