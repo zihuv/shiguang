@@ -42,7 +42,7 @@ jobs:
 
       - name: Create or update draft release
         id: release
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           RELEASE_VERSION: ${{ steps.prepare_release.outputs.version }}
           RELEASE_BODY: ${{ steps.prepare_release.outputs.body }}
@@ -125,7 +125,7 @@ jobs:
             "dist/shiguang-collector_${{ needs.prepare.outputs.version }}.zip"
 
       - name: Upload browser extension asset
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.prepare.outputs.version }}
           draft: true
@@ -195,7 +195,7 @@ jobs:
         run: node scripts/report-package-size.cjs release
 
       - name: Upload app assets
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.prepare.outputs.version }}
           draft: true
@@ -208,7 +208,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Publish draft release
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
