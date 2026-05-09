@@ -52,6 +52,7 @@ After `npm install`, run `npx electron-builder install-app-deps` if native Elect
 - Prefer systematic root-cause fixes over surface patches.
 - Respect existing architecture and local helper APIs before adding new abstractions.
 - Keep changes scoped; do not rewrite unrelated code or generated files.
+- Avoid speculative fallback code, redundant branches, and defensive programming unless they address a known runtime boundary or failure mode.
 
 ## Database Migrations
 
