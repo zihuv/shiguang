@@ -14,6 +14,47 @@ export function parseOptionalInt(value) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+const IMAGE_DATA_ATTRIBUTES = [
+  "full",
+  "fullSize",
+  "large",
+  "original",
+  "originalSrc",
+  "src",
+  "lazy",
+  "pinMedia",
+  "image",
+  "url",
+];
+
+function parseSrcset(srcset, collector) {
+  if (typeof srcset !== "string" || !srcset.trim()) {
+    return null;
+  }
+
+  const candidates = srcset
+    .split(",")
+    .map((candidate) => {
+      const parts = candidate.trim().split(/\s+/);
+      const url = parts[0];
+      const descriptor = parts[1] || "";
+      const width = descriptor.endsWith("w") ? Number.parseInt(descriptor, 10) : 0;
+      const density = descriptor.endsWith("x") ? Number.parseFloat(descriptor) : 0;
+      return {
+        url,
+        score: Number.isFinite(width) && width > 0 ? width : density * 1000,
+      };
+    })
+    .filter((candidate) => candidate.url);
+
+  if (!candidates.length) {
+    return null;
+  }
+
+  candidates.sort((left, right) => right.score - left.score);
+  return collector.normalizeImageUrl(candidates[0].url);
+}
+
 export function scanPageImages(collector) {
   const images = new Map();
 
@@ -49,7 +90,25 @@ export function scanPageImages(collector) {
 
   document.querySelectorAll("img").forEach((img) => {
     addImage(
+      collector.getImageUrlFromElement?.(img),
+      img.naturalWidth || img.width,
+      img.naturalHeight || img.height,
+      img,
+    );
+    addImage(
       img.currentSrc || img.src,
+      img.naturalWidth || img.width,
+      img.naturalHeight || img.height,
+      img,
+    );
+    addImage(
+      parseSrcset(img.getAttribute("srcset"), collector),
+      img.naturalWidth || img.width,
+      img.naturalHeight || img.height,
+      img,
+    );
+    addImage(
+      parseSrcset(img.dataset.srcset, collector),
       img.naturalWidth || img.width,
       img.naturalHeight || img.height,
       img,
@@ -62,16 +121,31 @@ export function scanPageImages(collector) {
       img,
     );
     addImage(img.dataset.lazy, img.naturalWidth || img.width, img.naturalHeight || img.height, img);
+    for (const attribute of IMAGE_DATA_ATTRIBUTES) {
+      addImage(
+        img.dataset[attribute],
+        img.naturalWidth || img.width,
+        img.naturalHeight || img.height,
+        img,
+      );
+    }
   });
 
-  document.querySelectorAll("[data-src], [data-original], [data-lazy]").forEach((element) => {
-    addImage(
-      element.dataset.src || element.dataset.original || element.dataset.lazy,
-      0,
-      0,
-      element,
-    );
+  document.querySelectorAll("source[srcset]").forEach((source) => {
+    addImage(parseSrcset(source.getAttribute("srcset"), collector), 0, 0, source);
   });
+
+  document
+    .querySelectorAll(
+      "[data-src], [data-original], [data-lazy], [data-large], [data-full], [data-full-size], [data-original-src], [data-srcset], [data-pin-media], [data-image]",
+    )
+    .forEach((element) => {
+      addImage(collector.getImageUrlFromElement?.(element), 0, 0, element);
+      addImage(parseSrcset(element.dataset.srcset, collector), 0, 0, element);
+      for (const attribute of IMAGE_DATA_ATTRIBUTES) {
+        addImage(element.dataset[attribute], 0, 0, element);
+      }
+    });
 
   document.querySelectorAll("*").forEach((element) => {
     const style = window.getComputedStyle(element);

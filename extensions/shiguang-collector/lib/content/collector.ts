@@ -252,9 +252,84 @@ export function createCollector(siteMetadata = null) {
     return target?.nodeType === Node.TEXT_NODE ? target.parentElement : target;
   }
 
+  const IMAGE_DATA_ATTRIBUTES = [
+    "full",
+    "fullSize",
+    "large",
+    "original",
+    "originalSrc",
+    "src",
+    "lazy",
+    "pinMedia",
+    "image",
+    "url",
+  ];
+
+  function parseSrcset(srcset) {
+    if (typeof srcset !== "string" || !srcset.trim()) {
+      return null;
+    }
+
+    const candidates = srcset
+      .split(",")
+      .map((candidate) => {
+        const parts = candidate.trim().split(/\s+/);
+        const url = parts[0];
+        const descriptor = parts[1] || "";
+        const width = descriptor.endsWith("w") ? Number.parseInt(descriptor, 10) : 0;
+        const density = descriptor.endsWith("x") ? Number.parseFloat(descriptor) : 0;
+        return {
+          url,
+          score: Number.isFinite(width) && width > 0 ? width : density * 1000,
+        };
+      })
+      .filter((candidate) => candidate.url);
+
+    if (!candidates.length) {
+      return null;
+    }
+
+    candidates.sort((left, right) => right.score - left.score);
+    return normalizeImageUrl(candidates[0].url);
+  }
+
+  function getDataImageUrl(element) {
+    for (const attribute of IMAGE_DATA_ATTRIBUTES) {
+      const value = element.dataset?.[attribute];
+      const normalized = normalizeImageUrl(value);
+      if (normalized) {
+        return normalized;
+      }
+    }
+
+    const dataSrcset = parseSrcset(element.dataset?.srcset);
+    if (dataSrcset) {
+      return dataSrcset;
+    }
+
+    return null;
+  }
+
+  function getPictureSourceUrl(element) {
+    const picture = element.closest?.("picture") || element.querySelector?.("picture");
+    const sources = picture ? Array.from(picture.querySelectorAll("source[srcset]")) : [];
+
+    for (const source of sources) {
+      const sourceUrl = parseSrcset(source.getAttribute("srcset"));
+      if (sourceUrl) {
+        return sourceUrl;
+      }
+    }
+
+    return null;
+  }
+
   function getImageUrlFromImage(img) {
-    return normalizeImageUrl(
-      img.dataset.src || img.dataset.original || img.dataset.lazy || img.currentSrc || img.src,
+    return (
+      getDataImageUrl(img) ||
+      getPictureSourceUrl(img) ||
+      parseSrcset(img.getAttribute("srcset")) ||
+      normalizeImageUrl(img.currentSrc || img.src)
     );
   }
 
@@ -274,10 +349,14 @@ export function createCollector(siteMetadata = null) {
       return getImageUrlFromImage(element);
     }
 
-    if (element.dataset.src || element.dataset.original || element.dataset.lazy) {
-      return normalizeImageUrl(
-        element.dataset.src || element.dataset.original || element.dataset.lazy,
-      );
+    const dataImageUrl = getDataImageUrl(element);
+    if (dataImageUrl) {
+      return dataImageUrl;
+    }
+
+    const pictureSourceUrl = getPictureSourceUrl(element);
+    if (pictureSourceUrl) {
+      return pictureSourceUrl;
     }
 
     const backgroundUrl =

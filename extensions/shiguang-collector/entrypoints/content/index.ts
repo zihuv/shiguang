@@ -5,7 +5,7 @@ import { createCollector } from "../../lib/content/collector";
 import { createDragDock } from "../../lib/content/drag-dock";
 import { createPanel } from "../../lib/content/panel";
 import { siteMetadata } from "../../lib/content/site-metadata";
-import { initXiaohongshu } from "../../lib/site-adapters/xiaohongshu";
+import { initSiteAdapters } from "../../lib/site-adapters";
 
 export default defineContentScript({
   matches: ["<all_urls>"],
@@ -16,7 +16,7 @@ export default defineContentScript({
     const DRAG_PREVIEW_ID = "shiguang-drag-preview-container";
     const DRAG_PREVIEW_MAX_SIZE = 112;
 
-    initXiaohongshu(collector);
+    initSiteAdapters(collector);
 
     function findPreviewImageElement(target) {
       const element = target?.nodeType === Node.TEXT_NODE ? target.parentElement : target;

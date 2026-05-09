@@ -8,6 +8,7 @@
 
 ### Added
 
+- 浏览器采集扩展增强小红书、Pinterest、Behance、Dribbble、ArtStation、pixiv 及常见图片素材站的来源链接、标题和大图识别。
 - 浏览器采集扩展支持从 Unsplash、Pexels、Pixabay、Flickr 和 Wikimedia Commons 透传网页元数据。
 - 浏览器采集扩展支持拖拽图片到旁侧浮层中的目标文件夹，松手后直接收藏到对应文件夹。
 
