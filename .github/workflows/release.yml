@@ -52,51 +52,45 @@ jobs:
             const tag = process.env.RELEASE_VERSION;
             const owner = context.repo.owner;
             const repo = context.repo.repo;
-            let release;
 
-            try {
-              const existing = await github.rest.repos.getReleaseByTag({
-                owner,
-                repo,
-                tag,
-              });
-              release = existing.data;
-              if (!release.draft) {
-                core.setFailed(`Release ${tag} already exists and is not a draft.`);
-                return;
-              }
+            const existing = await github.paginate(github.rest.repos.listReleases, {
+              owner,
+              repo,
+              per_page: 100,
+            });
+            const releaseForTag = existing.find((release) => release.tag_name === tag);
 
-              release = (
-                await github.rest.repos.updateRelease({
-                  owner,
-                  repo,
-                  release_id: release.id,
-                  tag_name: tag,
-                  name: tag,
-                  body: process.env.RELEASE_BODY,
-                  draft: true,
-                  prerelease: false,
-                  target_commitish: context.sha,
-                })
-              ).data;
-            } catch (error) {
-              if (error.status !== 404) {
-                throw error;
-              }
-
-              release = (
-                await github.rest.repos.createRelease({
-                  owner,
-                  repo,
-                  tag_name: tag,
-                  name: tag,
-                  body: process.env.RELEASE_BODY,
-                  draft: true,
-                  prerelease: false,
-                  target_commitish: context.sha,
-                })
-              ).data;
+            if (releaseForTag && !releaseForTag.draft) {
+              core.setFailed(`Release ${tag} already exists and is not a draft.`);
+              return;
             }
+
+            const release = releaseForTag
+              ? (
+                  await github.rest.repos.updateRelease({
+                    owner,
+                    repo,
+                    release_id: releaseForTag.id,
+                    tag_name: tag,
+                    name: tag,
+                    body: process.env.RELEASE_BODY,
+                    draft: true,
+                    prerelease: false,
+                    target_commitish: context.sha,
+                  })
+                ).data
+              : (
+                  await github.rest.repos.createRelease({
+                    owner,
+                    repo,
+                    tag_name: tag,
+                    name: tag,
+                    body: process.env.RELEASE_BODY,
+                    draft: true,
+                    prerelease: false,
+                    target_commitish: context.sha,
+                  })
+                ).data;
 
             core.setOutput("release_id", String(release.id));
 
@@ -212,10 +206,30 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
+            const tag = "${{ needs.prepare.outputs.version }}";
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const releases = await github.paginate(github.rest.repos.listReleases, {
+              owner,
+              repo,
+              per_page: 100,
+            });
+            const release = releases.find((item) => item.tag_name === tag);
+
+            if (!release) {
+              core.setFailed(`Release ${tag} was not found.`);
+              return;
+            }
+
+            if (!release.draft) {
+              core.info(`Release ${tag} is already published.`);
+              return;
+            }
+
             await github.rest.repos.updateRelease({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              release_id: Number("${{ needs.prepare.outputs.release_id }}"),
+              owner,
+              repo,
+              release_id: release.id,
               draft: false,
               prerelease: false,
             });
