@@ -8,6 +8,7 @@ interface DragDockRefs {
   root: HTMLDivElement;
   card: HTMLDivElement;
   leftDropTarget: HTMLDivElement;
+  rightPanel: HTMLDivElement;
   rightTitle: HTMLDivElement;
   folderList: HTMLDivElement;
   folderStatus: HTMLDivElement;
@@ -28,8 +29,10 @@ export function createDragDock(collector: Collector): DragDock {
   const DEFAULT_FOLDER_TARGET_ID = "__default__";
   const DRAG_PANEL_MARGIN = 12;
   const DRAG_PANEL_GAP = 24;
-  const FOLDER_LIST_AUTO_SCROLL_EDGE = 42;
-  const FOLDER_LIST_AUTO_SCROLL_MAX_SPEED = 18;
+  const FOLDER_LIST_AUTO_SCROLL_EDGE = 24;
+  const FOLDER_LIST_AUTO_SCROLL_TARGET_EDGE = 12;
+  const FOLDER_LIST_AUTO_SCROLL_MAX_SPEED = 12;
+  const FOLDER_LIST_AUTO_SCROLL_INTENT_DELAY = 140;
 
   let dragDockRefs: DragDockRefs | null = null;
   let dragDockHideTimer = 0;
@@ -48,6 +51,8 @@ export function createDragDock(collector: Collector): DragDock {
   let lastDragPoint: { x: number; y: number } | null = null;
   let folderAutoScrollFrame = 0;
   let folderAutoScrollSpeed = 0;
+  let folderAutoScrollIntent: { direction: "up" | "down"; startedAt: number } | null = null;
+  let lastFolderAutoScrollY: number | null = null;
 
   collectorPreferences.getValue().then((preferences) => {
     dragDockEnabled = preferences.dragDockEnabled !== false;
@@ -83,17 +88,22 @@ export function createDragDock(collector: Collector): DragDock {
     (document.head || document.documentElement).appendChild(style);
   }
 
-  function stopFolderAutoScroll() {
+  function stopFolderAutoScroll(resetIntent = true) {
     folderAutoScrollSpeed = 0;
     if (folderAutoScrollFrame) {
       window.cancelAnimationFrame(folderAutoScrollFrame);
       folderAutoScrollFrame = 0;
     }
+
+    if (resetIntent) {
+      folderAutoScrollIntent = null;
+      lastFolderAutoScrollY = null;
+    }
   }
 
   function runFolderAutoScroll() {
     if (!folderAutoScrollSpeed || !dragDockRefs?.folderList?.isConnected) {
-      stopFolderAutoScroll();
+      stopFolderAutoScroll(false);
       return;
     }
 
@@ -114,15 +124,63 @@ export function createDragDock(collector: Collector): DragDock {
     }
   }
 
+  function getFolderTargetElementFromEvent(event: DragEvent): HTMLElement | null {
+    return event.target instanceof Element
+      ? event.target.closest<HTMLElement>("[data-shiguang-folder-target-id]")
+      : null;
+  }
+
+  function getFolderAutoScrollSpeed(
+    direction: "up" | "down",
+    distanceToEdge: number,
+    edge: number,
+  ): number {
+    const strength = Math.max(0, Math.min(1, 1 - distanceToEdge / edge));
+    const speed = Math.ceil(strength * FOLDER_LIST_AUTO_SCROLL_MAX_SPEED);
+    return direction === "up" ? -speed : speed;
+  }
+
+  function shouldDelayFolderAutoScroll(
+    direction: "up" | "down",
+    isOverFolderTarget: boolean,
+    now: number,
+  ): boolean {
+    if (!isOverFolderTarget) {
+      return false;
+    }
+
+    if (
+      folderAutoScrollSpeed &&
+      Math.sign(folderAutoScrollSpeed) === (direction === "up" ? -1 : 1)
+    ) {
+      return false;
+    }
+
+    if (!folderAutoScrollIntent || folderAutoScrollIntent.direction !== direction) {
+      folderAutoScrollIntent = { direction, startedAt: now };
+      return true;
+    }
+
+    return now - folderAutoScrollIntent.startedAt < FOLDER_LIST_AUTO_SCROLL_INTENT_DELAY;
+  }
+
   function updateFolderAutoScroll(event: DragEvent): void {
     const folderList = dragDockRefs?.folderList;
+    const rightPanel = dragDockRefs?.rightPanel;
     if (!folderList || folderList.hidden) {
       stopFolderAutoScroll();
       return;
     }
 
     const rect = folderList.getBoundingClientRect();
-    if (!rect.height || event.clientY < rect.top || event.clientY > rect.bottom) {
+    const scopeRect = rightPanel?.getBoundingClientRect();
+    const activeRect = scopeRect?.width && scopeRect.height ? scopeRect : rect;
+    const isInAutoScrollScope =
+      event.clientX >= activeRect.left &&
+      event.clientX <= activeRect.right &&
+      event.clientY >= activeRect.top &&
+      event.clientY <= activeRect.bottom;
+    if (!rect.height || !isInAutoScrollScope) {
       stopFolderAutoScroll();
       return;
     }
@@ -133,17 +191,56 @@ export function createDragDock(collector: Collector): DragDock {
       return;
     }
 
-    const distanceToTop = event.clientY - rect.top;
-    const distanceToBottom = rect.bottom - event.clientY;
-    if (distanceToTop < FOLDER_LIST_AUTO_SCROLL_EDGE && folderList.scrollTop > 0) {
-      const strength = 1 - distanceToTop / FOLDER_LIST_AUTO_SCROLL_EDGE;
-      setFolderAutoScrollSpeed(-Math.ceil(strength * FOLDER_LIST_AUTO_SCROLL_MAX_SPEED));
-      return;
+    const distanceToTop = Math.max(0, event.clientY - rect.top);
+    const distanceToBottom = Math.max(0, rect.bottom - event.clientY);
+    const isOverFolderTarget = Boolean(getFolderTargetElementFromEvent(event));
+    const edge = isOverFolderTarget
+      ? FOLDER_LIST_AUTO_SCROLL_TARGET_EDGE
+      : FOLDER_LIST_AUTO_SCROLL_EDGE;
+    const previousY = lastFolderAutoScrollY;
+    const deltaY = previousY === null ? 0 : event.clientY - previousY;
+    lastFolderAutoScrollY = event.clientY;
+
+    const now = window.performance?.now?.() ?? Date.now();
+    const candidates: Array<{
+      direction: "up" | "down";
+      distanceToEdge: number;
+      movingTowardEdge: boolean;
+    }> = [];
+
+    if ((event.clientY < rect.top || distanceToTop < edge) && folderList.scrollTop > 0) {
+      candidates.push({
+        direction: "up",
+        distanceToEdge: distanceToTop,
+        movingTowardEdge: previousY === null || deltaY <= 0,
+      });
     }
 
-    if (distanceToBottom < FOLDER_LIST_AUTO_SCROLL_EDGE && folderList.scrollTop < maxScrollTop) {
-      const strength = 1 - distanceToBottom / FOLDER_LIST_AUTO_SCROLL_EDGE;
-      setFolderAutoScrollSpeed(Math.ceil(strength * FOLDER_LIST_AUTO_SCROLL_MAX_SPEED));
+    if (
+      (event.clientY > rect.bottom || distanceToBottom < edge) &&
+      folderList.scrollTop < maxScrollTop
+    ) {
+      candidates.push({
+        direction: "down",
+        distanceToEdge: distanceToBottom,
+        movingTowardEdge: previousY === null || deltaY >= 0,
+      });
+    }
+
+    const candidate = candidates[0];
+    if (candidate?.movingTowardEdge) {
+      if (shouldDelayFolderAutoScroll(candidate.direction, isOverFolderTarget, now)) {
+        stopFolderAutoScroll(false);
+        return;
+      }
+
+      folderAutoScrollIntent = {
+        direction: candidate.direction,
+        startedAt: folderAutoScrollIntent?.startedAt ?? now,
+      };
+      setFolderAutoScrollSpeed(
+        getFolderAutoScrollSpeed(candidate.direction, candidate.distanceToEdge, edge),
+      );
       return;
     }
 
@@ -249,10 +346,7 @@ export function createDragDock(collector: Collector): DragDock {
   }
 
   function getFolderTargetFromEvent(event: DragEvent): FolderTarget | null {
-    const target =
-      event.target instanceof Element
-        ? event.target.closest<HTMLElement>("[data-shiguang-folder-target-id]")
-        : null;
+    const target = getFolderTargetElementFromEvent(event);
     if (!target) {
       return null;
     }
@@ -552,6 +646,7 @@ export function createDragDock(collector: Collector): DragDock {
       root,
       card,
       leftDropTarget,
+      rightPanel,
       rightTitle,
       folderList,
       folderStatus,

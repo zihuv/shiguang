@@ -300,6 +300,241 @@ describe("collector drag dock", () => {
     dragDock.hideDragDock(true);
   });
 
+  it("auto-scrolls upward when dragging over the right title area", async () => {
+    setupDom(
+      {},
+      {
+        success: true,
+        default_folder_id: 1,
+        folders: Array.from({ length: 18 }, (_, index) => ({
+          id: index + 2,
+          name: `文件夹 ${index + 1}`,
+          parentId: null,
+          children: [],
+        })),
+      },
+    );
+    const { dragDock } = await loadDragDockScript();
+
+    dragDock.showDragDock("https://example.com/image.jpg");
+    await flushPromises();
+
+    const rightPanel = document.querySelector<HTMLElement>(".shiguang-drag-dock__right")!;
+    const rightTitle = document.querySelector<HTMLElement>(".shiguang-drag-dock__right-title")!;
+    const folderList = document.querySelector<HTMLElement>('[data-shiguang-folder-list="true"]')!;
+    Object.defineProperties(folderList, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, value: 600 },
+    });
+    folderList.scrollTop = 120;
+    rightPanel.getBoundingClientRect = vi.fn(() => ({
+      top: 60,
+      bottom: 242,
+      height: 182,
+      left: 0,
+      right: 240,
+      width: 240,
+      x: 0,
+      y: 60,
+      toJSON: () => ({}),
+    }));
+    folderList.getBoundingClientRect = vi.fn(() => ({
+      top: 100,
+      bottom: 200,
+      height: 100,
+      left: 0,
+      right: 240,
+      width: 240,
+      x: 0,
+      y: 100,
+      toJSON: () => ({}),
+    }));
+
+    const dragoverEvent = new Event("dragover", { bubbles: true, cancelable: true });
+    Object.defineProperties(dragoverEvent, {
+      clientX: { value: 80 },
+      clientY: { value: 80 },
+    });
+    rightTitle.dispatchEvent(dragoverEvent);
+
+    expect(folderList.scrollTop).toBeLessThan(120);
+    dragDock.hideDragDock(true);
+  });
+
+  it("auto-scrolls downward when dragging over the right footer area", async () => {
+    setupDom(
+      {},
+      {
+        success: true,
+        default_folder_id: 1,
+        folders: Array.from({ length: 18 }, (_, index) => ({
+          id: index + 2,
+          name: `文件夹 ${index + 1}`,
+          parentId: null,
+          children: [],
+        })),
+      },
+    );
+    const { dragDock } = await loadDragDockScript();
+
+    dragDock.showDragDock("https://example.com/image.jpg");
+    await flushPromises();
+
+    const rightPanel = document.querySelector<HTMLElement>(".shiguang-drag-dock__right")!;
+    const rightFooter = document.querySelector<HTMLElement>(".shiguang-drag-dock__footer")!;
+    const folderList = document.querySelector<HTMLElement>('[data-shiguang-folder-list="true"]')!;
+    Object.defineProperties(folderList, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, value: 600 },
+    });
+    rightPanel.getBoundingClientRect = vi.fn(() => ({
+      top: 60,
+      bottom: 242,
+      height: 182,
+      left: 0,
+      right: 240,
+      width: 240,
+      x: 0,
+      y: 60,
+      toJSON: () => ({}),
+    }));
+    folderList.getBoundingClientRect = vi.fn(() => ({
+      top: 100,
+      bottom: 200,
+      height: 100,
+      left: 0,
+      right: 240,
+      width: 240,
+      x: 0,
+      y: 100,
+      toJSON: () => ({}),
+    }));
+
+    const dragoverEvent = new Event("dragover", { bubbles: true, cancelable: true });
+    Object.defineProperties(dragoverEvent, {
+      clientX: { value: 80 },
+      clientY: { value: 228 },
+    });
+    rightFooter.dispatchEvent(dragoverEvent);
+
+    expect(folderList.scrollTop).toBeGreaterThan(0);
+    dragDock.hideDragDock(true);
+  });
+
+  it("does not auto-scroll when hovering over the body of the last visible folder target", async () => {
+    setupDom(
+      {},
+      {
+        success: true,
+        default_folder_id: 1,
+        folders: Array.from({ length: 18 }, (_, index) => ({
+          id: index + 2,
+          name: `文件夹 ${index + 1}`,
+          parentId: null,
+          children: [],
+        })),
+      },
+    );
+    const { dragDock } = await loadDragDockScript();
+
+    dragDock.showDragDock("https://example.com/image.jpg");
+    await flushPromises();
+
+    const folderList = document.querySelector<HTMLElement>('[data-shiguang-folder-list="true"]')!;
+    const folderTarget = folderList.querySelector<HTMLElement>(
+      '[data-shiguang-folder-target-id="19"]',
+    )!;
+    Object.defineProperties(folderList, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, value: 600 },
+    });
+    folderList.getBoundingClientRect = vi.fn(() => ({
+      top: 100,
+      bottom: 200,
+      height: 100,
+      left: 0,
+      right: 240,
+      width: 240,
+      x: 0,
+      y: 100,
+      toJSON: () => ({}),
+    }));
+
+    const dragoverEvent = new Event("dragover", { bubbles: true, cancelable: true });
+    Object.defineProperties(dragoverEvent, {
+      clientX: { value: 80 },
+      clientY: { value: 184 },
+    });
+    folderTarget.dispatchEvent(dragoverEvent);
+
+    expect(folderList.scrollTop).toBe(0);
+    dragDock.hideDragDock(true);
+  });
+
+  it("auto-scrolls after intent is clear at the bottom edge of a folder target", async () => {
+    setupDom(
+      {},
+      {
+        success: true,
+        default_folder_id: 1,
+        folders: Array.from({ length: 18 }, (_, index) => ({
+          id: index + 2,
+          name: `文件夹 ${index + 1}`,
+          parentId: null,
+          children: [],
+        })),
+      },
+    );
+    const nowSpy = vi.spyOn(window.performance, "now").mockReturnValue(0);
+    const { dragDock } = await loadDragDockScript();
+
+    dragDock.showDragDock("https://example.com/image.jpg");
+    await flushPromises();
+
+    const folderList = document.querySelector<HTMLElement>('[data-shiguang-folder-list="true"]')!;
+    const folderTarget = folderList.querySelector<HTMLElement>(
+      '[data-shiguang-folder-target-id="19"]',
+    )!;
+    Object.defineProperties(folderList, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, value: 600 },
+    });
+    folderList.getBoundingClientRect = vi.fn(() => ({
+      top: 100,
+      bottom: 200,
+      height: 100,
+      left: 0,
+      right: 240,
+      width: 240,
+      x: 0,
+      y: 100,
+      toJSON: () => ({}),
+    }));
+
+    const firstDragover = new Event("dragover", { bubbles: true, cancelable: true });
+    Object.defineProperties(firstDragover, {
+      clientX: { value: 80 },
+      clientY: { value: 196 },
+    });
+    folderTarget.dispatchEvent(firstDragover);
+
+    expect(folderList.scrollTop).toBe(0);
+
+    nowSpy.mockReturnValue(200);
+    const currentFolderTarget = folderList.querySelector<HTMLElement>(
+      '[data-shiguang-folder-target-id="19"]',
+    )!;
+    const secondDragover = new Event("dragover", { bubbles: true, cancelable: true });
+    Object.defineProperties(secondDragover, {
+      clientX: { value: 80 },
+      clientY: { value: 197 },
+    });
+    currentFolderTarget.dispatchEvent(secondDragover);
+
+    expect(folderList.scrollTop).toBeGreaterThan(0);
+    dragDock.hideDragDock(true);
+  });
+
   it("renders folder drop targets from the collector folder tree", async () => {
     setupDom(
       {},
