@@ -2,8 +2,26 @@
 
 import { collectorPreferences } from "../preferences";
 import { dragDockStyle } from "./drag-dock-style";
+import type { CollectionPayload, Collector, DragDock, FolderRecord, FolderTarget } from "../types";
 
-export function createDragDock(collector) {
+interface DragDockRefs {
+  root: HTMLDivElement;
+  card: HTMLDivElement;
+  leftDropTarget: HTMLDivElement;
+  rightTitle: HTMLDivElement;
+  folderList: HTMLDivElement;
+  folderStatus: HTMLDivElement;
+  footerText: HTMLSpanElement;
+}
+
+interface RuntimeFoldersResponse {
+  success?: boolean;
+  error?: string;
+  default_folder_id?: unknown;
+  folders?: FolderRecord[];
+}
+
+export function createDragDock(collector: Collector): DragDock {
   const DRAG_DOCK_ID = "shiguang-drag-dock";
   const DRAG_DOCK_STYLE_ID = "shiguang-drag-dock-style";
   const DRAG_DOCK_HIDE_DELAY = 140;
@@ -13,21 +31,21 @@ export function createDragDock(collector) {
   const FOLDER_LIST_AUTO_SCROLL_EDGE = 42;
   const FOLDER_LIST_AUTO_SCROLL_MAX_SPEED = 18;
 
-  let dragDockRefs = null;
+  let dragDockRefs: DragDockRefs | null = null;
   let dragDockHideTimer = 0;
   let dragDockHoverDepth = 0;
   let dragDockVisible = false;
   let dragDockSending = false;
-  let currentDragImageUrl = null;
-  let currentDragReferer = null;
-  let currentDragSourceUrl = null;
-  let currentDragCollectionPayload = null;
+  let currentDragImageUrl: string | null = null;
+  let currentDragReferer: string | null = null;
+  let currentDragSourceUrl: string | null = null;
+  let currentDragCollectionPayload: CollectionPayload | null = null;
   let dragDockEnabled = true;
-  let folderTargets = [];
+  let folderTargets: FolderTarget[] = [];
   let folderTargetsLoading = false;
   let folderTargetsError = "";
-  let activeFolderTargetId = null;
-  let lastDragPoint = null;
+  let activeFolderTargetId: string | null = null;
+  let lastDragPoint: { x: number; y: number } | null = null;
   let folderAutoScrollFrame = 0;
   let folderAutoScrollSpeed = 0;
 
@@ -83,20 +101,20 @@ export function createDragDock(collector) {
     folderAutoScrollFrame = window.requestAnimationFrame(runFolderAutoScroll);
   }
 
-  function setFolderAutoScrollSpeed(speed) {
+  function setFolderAutoScrollSpeed(speed: number): void {
     folderAutoScrollSpeed = speed;
     if (!speed) {
       stopFolderAutoScroll();
       return;
     }
 
-    if (!folderAutoScrollFrame) {
+    if (!folderAutoScrollFrame && dragDockRefs) {
       dragDockRefs.folderList.scrollTop += speed;
       folderAutoScrollFrame = window.requestAnimationFrame(runFolderAutoScroll);
     }
   }
 
-  function updateFolderAutoScroll(event) {
+  function updateFolderAutoScroll(event: DragEvent): void {
     const folderList = dragDockRefs?.folderList;
     if (!folderList || folderList.hidden) {
       stopFolderAutoScroll();
@@ -132,7 +150,9 @@ export function createDragDock(collector) {
     stopFolderAutoScroll();
   }
 
-  function sendRuntimeMessage(message) {
+  function sendRuntimeMessage(
+    message: Record<string, unknown>,
+  ): Promise<RuntimeFoldersResponse | null> {
     return new Promise((resolve, reject) => {
       if (!globalThis.chrome?.runtime?.sendMessage) {
         resolve(null);
@@ -150,7 +170,7 @@ export function createDragDock(collector) {
     });
   }
 
-  function parseOptionalInt(value) {
+  function parseOptionalInt(value: unknown): number | null {
     if (value === null || value === undefined || value === "") {
       return null;
     }
@@ -159,8 +179,13 @@ export function createDragDock(collector) {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
   }
 
-  function flattenFolders(folders, defaultFolderId, depth = 0, trail = []) {
-    const rows = [];
+  function flattenFolders(
+    folders: FolderRecord[] = [],
+    defaultFolderId: number | null,
+    depth = 0,
+    trail: string[] = [],
+  ): FolderTarget[] {
+    const rows: FolderTarget[] = [];
     for (const folder of folders || []) {
       const nextTrail = [...trail, folder.name].filter(Boolean);
       if (defaultFolderId && folder.id === defaultFolderId) {
@@ -223,8 +248,11 @@ export function createDragDock(collector) {
     }
   }
 
-  function getFolderTargetFromEvent(event) {
-    const target = event.target?.closest?.("[data-shiguang-folder-target-id]");
+  function getFolderTargetFromEvent(event: DragEvent): FolderTarget | null {
+    const target =
+      event.target instanceof Element
+        ? event.target.closest<HTMLElement>("[data-shiguang-folder-target-id]")
+        : null;
     if (!target) {
       return null;
     }
@@ -233,7 +261,7 @@ export function createDragDock(collector) {
     return folderTargets.find((folder) => folder.id === id) || null;
   }
 
-  function renderFolderTargets(refs) {
+  function renderFolderTargets(refs: DragDockRefs): void {
     const { folderList, folderStatus, leftDropTarget, rightTitle } = refs;
     if (!folderList || !folderStatus || !leftDropTarget || !rightTitle) {
       return;
@@ -311,7 +339,7 @@ export function createDragDock(collector) {
     folderList.appendChild(fragment);
   }
 
-  function ensureDragDock() {
+  function ensureDragDock(): DragDockRefs {
     if (dragDockRefs?.root?.isConnected) {
       return dragDockRefs;
     }
@@ -492,6 +520,7 @@ export function createDragDock(collector) {
           sourceUrl: currentDragSourceUrl || currentDragReferer || window.location.href,
           collectionPayload: currentDragCollectionPayload || {
             imageUrl,
+            candidateUrls: [imageUrl],
             sourceUrl: currentDragSourceUrl || currentDragReferer || window.location.href,
             metadata: null,
           },
@@ -532,7 +561,7 @@ export function createDragDock(collector) {
     return dragDockRefs;
   }
 
-  function syncDragDock() {
+  function syncDragDock(): void {
     const refs = dragDockVisible || dragDockRefs?.root?.isConnected ? ensureDragDock() : null;
     if (!refs) {
       return;
@@ -563,7 +592,7 @@ export function createDragDock(collector) {
     footerText.textContent = folderTargetsLoading ? "正在读取文件夹..." : "拖到左侧或文件夹";
   }
 
-  function updateDragDockPosition(clientX, clientY) {
+  function updateDragDockPosition(clientX: number, clientY: number): void {
     if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) {
       return;
     }
@@ -593,12 +622,12 @@ export function createDragDock(collector) {
   }
 
   function showDragDock(
-    imageUrl,
+    imageUrl: string,
     referer = window.location.href,
     sourceUrl = referer,
-    collectionPayload = null,
-    dragPoint = null,
-  ) {
+    collectionPayload: CollectionPayload | null = null,
+    dragPoint: { clientX: number; clientY: number } | null = null,
+  ): void {
     if (!dragDockEnabled) {
       return;
     }
@@ -621,7 +650,7 @@ export function createDragDock(collector) {
     void loadFolderTargets();
   }
 
-  function hideDragDock(force = false) {
+  function hideDragDock(force = false): void {
     clearDragDockHideTimer();
 
     if (dragDockSending && !force) {
@@ -641,7 +670,7 @@ export function createDragDock(collector) {
     syncDragDock();
   }
 
-  function scheduleDragDockHide(delay = DRAG_DOCK_HIDE_DELAY) {
+  function scheduleDragDockHide(delay = DRAG_DOCK_HIDE_DELAY): void {
     clearDragDockHideTimer();
     dragDockHideTimer = window.setTimeout(() => {
       hideDragDock();

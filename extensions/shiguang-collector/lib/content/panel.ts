@@ -2,28 +2,84 @@
 
 import { panelStyle } from "./panel-style";
 import { cropDataUrl, escapeHtml, parseOptionalInt, scanPageImages } from "./panel-utils";
+import type {
+  CollectionMetadata,
+  CollectionPayload,
+  Collector,
+  CollectorPanel,
+  FolderRecord,
+} from "../types";
 
-export function createPanel(collector) {
+interface Preferences {
+  dragDockEnabled?: boolean;
+  importConcurrency?: string;
+  targetFolderEnabled?: boolean;
+}
+
+interface Defaults {
+  importConcurrency: number;
+}
+
+interface RuntimeResponse {
+  success?: boolean;
+  error?: string;
+  preferences?: Preferences;
+  defaults?: Defaults;
+  folders?: FolderRecord[];
+  default_folder_id?: unknown;
+  dataUrl?: string;
+  result?: unknown;
+}
+
+interface FolderRow {
+  id: string | number;
+  name: string;
+  depth: number;
+  pathLabel: string;
+}
+
+interface ScannedImage {
+  url: string;
+  width: number;
+  height: number;
+  sourceUrl: string | null;
+  metadata: CollectionMetadata | null;
+}
+
+interface FolderSelection {
+  cancelled: boolean;
+  folderId?: string | number;
+  resolved: boolean;
+}
+
+type BatchStatus = "queued" | "running" | "success" | "failed";
+
+export function createPanel(collector: Collector): CollectorPanel {
   const PANEL_ID = "shiguang-collector-panel-host";
   const OVERLAY_ID = "shiguang-area-capture-overlay";
   const ELEMENT_PICKER_OVERLAY_ID = "shiguang-element-picker-overlay";
 
-  let host = null;
-  let shadow = null;
+  let host: HTMLDivElement | null = null;
+  let shadow: ShadowRoot | null = null;
   let panelOpen = false;
   let currentView = "home";
-  let preferences = {};
+  let preferences: Preferences = {};
   let defaults = { importConcurrency: 10 };
-  let folderTree = [];
-  let defaultFolderId = null;
-  let batchImages = [];
-  let selectedUrls = new Set();
-  let batchStatus = new Map();
-  let activeBatchUrls = new Set();
+  let folderTree: FolderRecord[] = [];
+  let defaultFolderId: string | number | null = null;
+  let batchImages: ScannedImage[] = [];
+  let selectedUrls = new Set<string>();
+  let batchStatus = new Map<string, BatchStatus>();
+  let activeBatchUrls = new Set<string>();
   let batchRunning = false;
-  let folderPickerPromise = null;
+  let folderPickerPromise: Promise<{
+    success?: boolean;
+    cancelled?: boolean;
+    error?: string;
+    folderId?: string;
+  }> | null = null;
 
-  function sendRuntimeMessage(message) {
+  function sendRuntimeMessage(message: Record<string, unknown>): Promise<RuntimeResponse> {
     return new Promise((resolve, reject) => {
       chrome.runtime.sendMessage(message, (response) => {
         const error = chrome.runtime.lastError;
@@ -31,7 +87,7 @@ export function createPanel(collector) {
           reject(new Error(error.message));
           return;
         }
-        resolve(response);
+        resolve((response || {}) as RuntimeResponse);
       });
     });
   }
@@ -62,7 +118,7 @@ export function createPanel(collector) {
     }
   }
 
-  async function savePreferences(nextPreferences) {
+  async function savePreferences(nextPreferences: Preferences): Promise<Preferences> {
     const response = await sendRuntimeMessage({
       action: "updatePreferences",
       payload: nextPreferences,
@@ -76,9 +132,9 @@ export function createPanel(collector) {
     throw new Error(response?.error || "偏好保存失败");
   }
 
-  function findDefaultFolderId(folders) {
-    const namedFolders = [];
-    const visit = (items = []) => {
+  function findDefaultFolderId(folders: FolderRecord[]): string | number | null {
+    const namedFolders: Array<FolderRecord & { parentId?: string | number | null }> = [];
+    const visit = (items: FolderRecord[] = []) => {
       for (const folder of items) {
         if (folder.name === "浏览器采集") {
           namedFolders.push(folder);
@@ -92,8 +148,8 @@ export function createPanel(collector) {
     return rootFolder?.id || namedFolders[0]?.id || null;
   }
 
-  function flattenFolders(folders, depth = 0, trail = []) {
-    const rows = [];
+  function flattenFolders(folders: FolderRecord[], depth = 0, trail: string[] = []): FolderRow[] {
+    const rows: FolderRow[] = [];
     for (const folder of folders || []) {
       if (defaultFolderId && folder.id === defaultFolderId) {
         rows.push(...flattenFolders(folder.children || [], depth + 1, [...trail, folder.name]));
@@ -112,11 +168,11 @@ export function createPanel(collector) {
     return rows;
   }
 
-  function isTargetFolderEnabled() {
+  function isTargetFolderEnabled(): boolean {
     return preferences.targetFolderEnabled === true;
   }
 
-  function renderFolderField(id, selectedFolderId = "") {
+  function renderFolderField(id: string, selectedFolderId = ""): string {
     const options = flattenFolders(folderTree)
       .map((folder) => {
         const selected = String(folder.id) === selectedFolderId ? "selected" : "";
@@ -139,7 +195,10 @@ export function createPanel(collector) {
     `;
   }
 
-  function setFolderSelectDisplayMode(select, mode) {
+  function setFolderSelectDisplayMode(
+    select: HTMLSelectElement | null,
+    mode: "tree" | "path",
+  ): void {
     for (const option of select?.options || []) {
       const pathLabel = option.dataset.pathLabel || option.textContent || "";
       const name = option.dataset.name || pathLabel;
@@ -148,7 +207,7 @@ export function createPanel(collector) {
     }
   }
 
-  function bindFolderSelectDisplay(select) {
+  function bindFolderSelectDisplay(select: HTMLSelectElement | null): void {
     if (!select) {
       return;
     }
@@ -156,7 +215,7 @@ export function createPanel(collector) {
     const showTree = () => setFolderSelectDisplayMode(select, "tree");
     const showPath = () => setFolderSelectDisplayMode(select, "path");
     select.addEventListener("pointerdown", showTree);
-    select.addEventListener("keydown", (event) => {
+    select.addEventListener("keydown", (event: KeyboardEvent) => {
       if ([" ", "Enter", "ArrowDown", "ArrowUp"].includes(event.key)) {
         showTree();
       }
@@ -166,7 +225,7 @@ export function createPanel(collector) {
     showPath();
   }
 
-  async function selectTargetFolder() {
+  async function selectTargetFolder(): ReturnType<CollectorPanel["selectTargetFolder"]> {
     await loadFolders();
     if (folderPickerPromise) {
       return folderPickerPromise;
@@ -191,26 +250,34 @@ export function createPanel(collector) {
         </div>
       `;
 
-      function finish(result) {
+      function finish(result: {
+        success?: boolean;
+        cancelled?: boolean;
+        error?: string;
+        folderId?: string;
+      }) {
         pickerHost.remove();
         folderPickerPromise = null;
         resolve(result);
       }
 
-      const select = pickerShadow.getElementById("folderPickerSelect");
+      const select = pickerShadow.getElementById("folderPickerSelect") as HTMLSelectElement | null;
       bindFolderSelectDisplay(select);
-      pickerShadow.getElementById("cancelFolderPicker").addEventListener("click", () => {
+      pickerShadow.getElementById("cancelFolderPicker")?.addEventListener("click", () => {
         finish({ success: false, cancelled: true, error: "已取消发送" });
       });
-      pickerShadow.getElementById("confirmFolderPicker").addEventListener("click", () => {
+      pickerShadow.getElementById("confirmFolderPicker")?.addEventListener("click", () => {
         finish({ success: true, folderId: select?.value || "" });
       });
-      pickerShadow.getElementById("folderPickerShell").addEventListener("click", (event) => {
-        if (event.target?.id === "folderPickerShell") {
+      pickerShadow.getElementById("folderPickerShell")?.addEventListener("click", (event) => {
+        if (event.target instanceof HTMLElement && event.target.id === "folderPickerShell") {
           finish({ success: false, cancelled: true, error: "已取消发送" });
         }
       });
       pickerShadow.addEventListener("keydown", (event) => {
+        if (!(event instanceof KeyboardEvent)) {
+          return;
+        }
         if (event.key === "Escape") {
           event.preventDefault();
           finish({ success: false, cancelled: true, error: "已取消发送" });
@@ -224,7 +291,7 @@ export function createPanel(collector) {
     return folderPickerPromise;
   }
 
-  async function resolveTargetFolderForSend() {
+  async function resolveTargetFolderForSend(): Promise<FolderSelection> {
     await loadPreferences();
     if (!isTargetFolderEnabled()) {
       return { cancelled: false, folderId: undefined, resolved: false };
@@ -238,7 +305,7 @@ export function createPanel(collector) {
     return { cancelled: false, folderId: result.folderId, resolved: true };
   }
 
-  function ensurePanel() {
+  function ensurePanel(): { host: HTMLDivElement; shadow: ShadowRoot } {
     if (host?.isConnected && shadow) {
       return { host, shadow };
     }
@@ -266,8 +333,8 @@ export function createPanel(collector) {
       </div>
     `;
 
-    shadow.getElementById("closeButton").addEventListener("click", closePanel);
-    shadow.getElementById("backButton").addEventListener("click", () => {
+    shadow.getElementById("closeButton")?.addEventListener("click", closePanel);
+    shadow.getElementById("backButton")?.addEventListener("click", () => {
       currentView = "home";
       renderPanel();
     });
@@ -276,15 +343,17 @@ export function createPanel(collector) {
     return { host, shadow };
   }
 
-  function openPanel(view = currentView || "home") {
+  function openPanel(view = currentView || "home"): void {
     ensurePanel();
     panelOpen = true;
     currentView = view;
-    host.style.display = "block";
+    if (host) {
+      host.style.display = "block";
+    }
     void Promise.all([loadPreferences(), loadFolders()]).then(renderPanel);
   }
 
-  function closePanel() {
+  function closePanel(): void {
     if (!host) {
       return;
     }
@@ -293,7 +362,7 @@ export function createPanel(collector) {
     host.style.display = "none";
   }
 
-  function togglePanel() {
+  function togglePanel(): void {
     if (panelOpen) {
       closePanel();
     } else {
@@ -301,20 +370,23 @@ export function createPanel(collector) {
     }
   }
 
-  function setPanelVisible(visible) {
+  function setPanelVisible(visible: boolean): void {
     if (!host) {
       return;
     }
     host.style.display = visible && panelOpen ? "block" : "none";
   }
 
-  function renderPanel() {
+  function renderPanel(): void {
     const { shadow: root } = ensurePanel();
     const backButton = root.getElementById("backButton");
     const title = root.getElementById("panelTitle");
     const body = root.getElementById("panelBody");
     const panelRoot = root.getElementById("panelRoot");
 
+    if (!backButton || !title || !body || !panelRoot) {
+      return;
+    }
     backButton.style.visibility = currentView === "home" ? "hidden" : "visible";
     panelRoot.classList.toggle("wide", currentView === "batch");
 
@@ -334,7 +406,7 @@ export function createPanel(collector) {
     renderHome(body);
   }
 
-  function renderHome(body) {
+  function renderHome(body: HTMLElement): void {
     const dragEnabled = preferences.dragDockEnabled !== false;
     body.innerHTML = `
       <div class="actions">
@@ -352,19 +424,21 @@ export function createPanel(collector) {
       </div>
     `;
 
-    body.querySelector("#areaCaptureButton").addEventListener("click", startAreaCapture);
-    body.querySelector("#elementCaptureButton").addEventListener("click", startElementCapture);
-    body.querySelector("#visibleCaptureButton").addEventListener("click", captureVisibleScreenshot);
-    body.querySelector("#batchButton").addEventListener("click", async () => {
+    body.querySelector("#areaCaptureButton")?.addEventListener("click", startAreaCapture);
+    body.querySelector("#elementCaptureButton")?.addEventListener("click", startElementCapture);
+    body
+      .querySelector("#visibleCaptureButton")
+      ?.addEventListener("click", captureVisibleScreenshot);
+    body.querySelector("#batchButton")?.addEventListener("click", async () => {
       currentView = "batch";
       await scanImages();
       renderPanel();
     });
-    body.querySelector("#preferencesButton").addEventListener("click", () => {
+    body.querySelector("#preferencesButton")?.addEventListener("click", () => {
       currentView = "preferences";
       renderPanel();
     });
-    body.querySelector("#dragToggleButton").addEventListener("click", async () => {
+    body.querySelector("#dragToggleButton")?.addEventListener("click", async () => {
       const next = { ...preferences, dragDockEnabled: !dragEnabled };
       try {
         await savePreferences(next);
@@ -375,7 +449,7 @@ export function createPanel(collector) {
     });
   }
 
-  function renderBatch(body) {
+  function renderBatch(body: HTMLElement): void {
     const previousScrollTop = body.scrollTop;
     const selectedCount = selectedUrls.size;
     const progressText = getBatchProgressText(selectedCount);
@@ -399,23 +473,23 @@ export function createPanel(collector) {
       }
     `;
 
-    body.querySelector("#rescanButton").addEventListener("click", async () => {
+    body.querySelector("#rescanButton")?.addEventListener("click", async () => {
       await scanImages();
       renderPanel();
     });
-    body.querySelector("#selectAllButton").addEventListener("click", () => {
+    body.querySelector("#selectAllButton")?.addEventListener("click", () => {
       selectedUrls = new Set(
         batchImages.map((image) => image.url).filter((url) => isSelectableBatchUrl(url)),
       );
       renderPanel();
     });
-    body.querySelector("#selectNoneButton").addEventListener("click", () => {
+    body.querySelector("#selectNoneButton")?.addEventListener("click", () => {
       selectedUrls = new Set();
       renderPanel();
     });
-    body.querySelector("#collectSelectedButton").addEventListener("click", collectSelectedImages);
+    body.querySelector("#collectSelectedButton")?.addEventListener("click", collectSelectedImages);
 
-    body.querySelectorAll(".check").forEach((input) => {
+    body.querySelectorAll<HTMLInputElement>(".check").forEach((input) => {
       input.addEventListener("change", () => {
         if (!isSelectableBatchUrl(input.value)) {
           input.checked = false;
@@ -436,7 +510,7 @@ export function createPanel(collector) {
     body.scrollTop = previousScrollTop;
   }
 
-  function syncBatchToolbar() {
+  function syncBatchToolbar(): void {
     const root = shadow;
     if (!root || currentView !== "batch") {
       return;
@@ -451,11 +525,11 @@ export function createPanel(collector) {
       progress.textContent = progressText;
     }
     if (collectButton) {
-      collectButton.disabled = !selectedCount || batchRunning;
+      (collectButton as HTMLButtonElement).disabled = !selectedCount || batchRunning;
     }
   }
 
-  function getBatchProgressText(selectedCount = selectedUrls.size) {
+  function getBatchProgressText(selectedCount = selectedUrls.size): string {
     if (!batchRunning || !activeBatchUrls.size) {
       return `${selectedCount} 已选`;
     }
@@ -467,12 +541,12 @@ export function createPanel(collector) {
     return `${completed} / ${activeBatchUrls.size}`;
   }
 
-  function isSelectableBatchUrl(url) {
+  function isSelectableBatchUrl(url: string): boolean {
     const status = batchStatus.get(url);
     return status !== "success" && status !== "queued" && status !== "running";
   }
 
-  function renderImageItem(image) {
+  function renderImageItem(image: ScannedImage): string {
     const status = batchStatus.get(image.url);
     const selectable = isSelectableBatchUrl(image.url);
     const statusText =
@@ -495,7 +569,7 @@ export function createPanel(collector) {
     `;
   }
 
-  function renderPreferences(body) {
+  function renderPreferences(body: HTMLElement): void {
     const dragEnabled = preferences.dragDockEnabled !== false;
     const targetFolderEnabled = isTargetFolderEnabled();
     body.innerHTML = `
@@ -520,20 +594,21 @@ export function createPanel(collector) {
       </div>
     `;
 
-    body.querySelector("#targetFolderToggleButton").addEventListener("click", async () => {
+    body.querySelector("#targetFolderToggleButton")?.addEventListener("click", async () => {
       preferences = { ...preferences, targetFolderEnabled: !targetFolderEnabled };
       await savePreferences(preferences);
       renderPanel();
     });
-    body.querySelector("#dragToggleButton").addEventListener("click", async () => {
+    body.querySelector("#dragToggleButton")?.addEventListener("click", async () => {
       preferences = { ...preferences, dragDockEnabled: !dragEnabled };
       await savePreferences(preferences);
       renderPanel();
     });
-    body.querySelector("#savePreferencesButton").addEventListener("click", async () => {
+    body.querySelector("#savePreferencesButton")?.addEventListener("click", async () => {
+      const importConcurrencyInput = body.querySelector<HTMLInputElement>("#importConcurrency");
       const next = {
         ...preferences,
-        importConcurrency: body.querySelector("#importConcurrency").value.trim(),
+        importConcurrency: importConcurrencyInput?.value.trim() || "",
         targetFolderEnabled,
       };
 
@@ -547,7 +622,7 @@ export function createPanel(collector) {
     });
   }
 
-  async function scanImages() {
+  async function scanImages(): Promise<void> {
     await Promise.all([loadPreferences(), loadFolders()]);
     batchImages = scanPageImages(collector);
     const batchImageUrls = new Set(batchImages.map((image) => image.url));
@@ -560,7 +635,7 @@ export function createPanel(collector) {
     selectedUrls = new Set();
   }
 
-  async function collectSelectedImages() {
+  async function collectSelectedImages(): Promise<void> {
     const urls = [...selectedUrls];
     if (!urls.length || batchRunning) {
       return;
@@ -604,9 +679,10 @@ export function createPanel(collector) {
           sourceUrl,
           collectionPayload: {
             imageUrl: url,
+            candidateUrls: [url],
             sourceUrl: sourceUrl || window.location.href,
             metadata: imageItem?.metadata || null,
-          },
+          } satisfies CollectionPayload,
           missingImageMessage: "未找到可采集的图片",
           notifyOnSuccess: false,
           folderId: target.folderId,
@@ -634,7 +710,7 @@ export function createPanel(collector) {
     renderPanel();
   }
 
-  async function captureVisibleScreenshot() {
+  async function captureVisibleScreenshot(): Promise<boolean> {
     try {
       const target = await resolveTargetFolderForSend();
       if (target.cancelled) {
@@ -665,7 +741,7 @@ export function createPanel(collector) {
     }
   }
 
-  function startAreaCapture() {
+  function startAreaCapture(): void {
     ensurePanel();
     setPanelVisible(false);
 
@@ -691,15 +767,15 @@ export function createPanel(collector) {
 
     let startX = 0;
     let startY = 0;
-    let currentRect = null;
+    let currentRect: DOMRect | null = null;
     let dragging = false;
 
-    function updateSelection(event) {
+    function updateSelection(event: MouseEvent): void {
       const left = Math.min(startX, event.clientX);
       const top = Math.min(startY, event.clientY);
       const width = Math.abs(event.clientX - startX);
       const height = Math.abs(event.clientY - startY);
-      currentRect = { left, top, width, height };
+      currentRect = new DOMRect(left, top, width, height);
       selection.style.display = "block";
       selection.style.left = `${left}px`;
       selection.style.top = `${top}px`;
@@ -707,7 +783,7 @@ export function createPanel(collector) {
       selection.style.height = `${height}px`;
     }
 
-    function cleanup(restorePanel = true) {
+    function cleanup(restorePanel = true): void {
       window.removeEventListener("keydown", handleKeydown, true);
       overlay.remove();
       if (restorePanel) {
@@ -715,7 +791,7 @@ export function createPanel(collector) {
       }
     }
 
-    async function finishSelection() {
+    async function finishSelection(): Promise<void> {
       const rect = currentRect;
       cleanup(false);
 
@@ -737,7 +813,7 @@ export function createPanel(collector) {
       }
     }
 
-    function handleKeydown(event) {
+    function handleKeydown(event: KeyboardEvent): void {
       if (event.key === "Escape") {
         event.preventDefault();
         cleanup(true);
@@ -773,7 +849,7 @@ export function createPanel(collector) {
     (document.body || document.documentElement).appendChild(overlay);
   }
 
-  function startElementCapture() {
+  function startElementCapture(): void {
     ensurePanel();
     setPanelVisible(false);
 
@@ -800,11 +876,11 @@ export function createPanel(collector) {
     ].join(";");
     overlay.appendChild(highlight);
 
-    let selectedElement = null;
-    let selectedRect = null;
+    let selectedElement: Element | null = null;
+    let selectedRect: DOMRect | null = null;
     let completed = false;
 
-    function cleanup(restorePanel = true) {
+    function cleanup(restorePanel = true): void {
       document.documentElement.style.cursor = previousCursor;
       document.removeEventListener("mousemove", handleMouseMove, true);
       document.removeEventListener("mousedown", handleMouseDown, true);
@@ -817,18 +893,18 @@ export function createPanel(collector) {
       }
     }
 
-    function isPickerElement(element) {
-      return (
+    function isPickerElement(element: Element | null): boolean {
+      return Boolean(
         element === overlay ||
         element === host ||
         element?.id === ELEMENT_PICKER_OVERLAY_ID ||
         element?.id === PANEL_ID ||
         element?.id === "shiguang-toast-container" ||
-        host?.contains(element)
+        host?.contains(element),
       );
     }
 
-    function getElementAtPoint(x, y) {
+    function getElementAtPoint(x: number, y: number): Element | null {
       const elements = document.elementsFromPoint(x, y);
       return (
         elements.find((element) => {
@@ -841,7 +917,7 @@ export function createPanel(collector) {
       );
     }
 
-    function getVisibleRect(element) {
+    function getVisibleRect(element: Element): DOMRect {
       const rect = element.getBoundingClientRect();
       const left = Math.max(0, rect.left);
       const top = Math.max(0, rect.top);
@@ -849,10 +925,10 @@ export function createPanel(collector) {
       const bottom = Math.min(window.innerHeight, rect.bottom);
       const width = Math.max(0, right - left);
       const height = Math.max(0, bottom - top);
-      return { left, top, width, height };
+      return new DOMRect(left, top, width, height);
     }
 
-    function updateHighlight(rect) {
+    function updateHighlight(rect: DOMRect | null): void {
       selectedRect = rect;
       if (!rect || rect.width < 2 || rect.height < 2) {
         highlight.style.display = "none";
@@ -866,12 +942,12 @@ export function createPanel(collector) {
       highlight.style.height = `${rect.height}px`;
     }
 
-    function selectFromEvent(event) {
+    function selectFromEvent(event: MouseEvent): void {
       selectedElement = getElementAtPoint(event.clientX, event.clientY);
       updateHighlight(selectedElement ? getVisibleRect(selectedElement) : null);
     }
 
-    async function finishSelection(event) {
+    async function finishSelection(event: MouseEvent): Promise<void> {
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
@@ -906,11 +982,11 @@ export function createPanel(collector) {
       }
     }
 
-    function handleMouseMove(event) {
+    function handleMouseMove(event: MouseEvent): void {
       selectFromEvent(event);
     }
 
-    function handleMouseDown(event) {
+    function handleMouseDown(event: MouseEvent): void {
       if (event.button !== 0) {
         return;
       }
@@ -919,21 +995,21 @@ export function createPanel(collector) {
       event.stopImmediatePropagation();
     }
 
-    function handleClick(event) {
+    function handleClick(event: MouseEvent): void {
       if (event.button !== 0) {
         return;
       }
       void finishSelection(event);
     }
 
-    function handleKeydown(event) {
+    function handleKeydown(event: KeyboardEvent): void {
       if (event.key === "Escape") {
         event.preventDefault();
         cleanup(true);
       }
     }
 
-    function handleScroll() {
+    function handleScroll(): void {
       if (selectedElement) {
         updateHighlight(getVisibleRect(selectedElement));
       }
@@ -947,7 +1023,7 @@ export function createPanel(collector) {
     (document.body || document.documentElement).appendChild(overlay);
   }
 
-  async function captureArea(rect, filename = "area-screenshot.png") {
+  async function captureArea(rect: DOMRect, filename = "area-screenshot.png"): Promise<unknown> {
     const target = await resolveTargetFolderForSend();
     if (target.cancelled) {
       return null;

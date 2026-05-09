@@ -1,5 +1,73 @@
 // 拾光采集器 - Background Runtime
 
+import type { CollectionMetadata, ToastType } from "../types";
+
+interface NormalizedPreferences {
+  dragDockEnabled?: boolean;
+  importConcurrency: string;
+  targetFolderEnabled: boolean;
+}
+
+type PreferencePatch = Partial<NormalizedPreferences>;
+
+interface FetchImageResult {
+  bytes: ArrayBuffer;
+  contentType: string;
+  finalUrl: string;
+}
+
+interface ImportTask {
+  tabId?: number;
+  imageUrl: string;
+  candidateUrls?: string[];
+  referer?: string;
+  sourceUrl?: string;
+  metadata?: CollectionMetadata | null;
+  folderId?: number | null;
+  renderedImageDataUrl?: string | null;
+  notifyOnError?: boolean;
+  notifyOnSuccess?: boolean;
+  successMessage?: string;
+}
+
+interface QueuedImportTask extends ImportTask {
+  resolve: (value: unknown) => void;
+}
+
+interface CollectImageOptions extends Omit<ImportTask, "imageUrl" | "folderId"> {
+  imageUrl?: string | null;
+  missingImageMessage?: string;
+  folderId?: string | number | null;
+  targetFolderResolved?: boolean;
+  forceTargetFolder?: boolean;
+}
+
+interface ImportBytesOptions {
+  filename?: string;
+  contentType?: string;
+  folderId?: number | null;
+  sourceUrl?: string;
+  metadata?: CollectionMetadata | null;
+}
+
+interface ScreenshotImportOptions {
+  filename?: string;
+  folderId?: string | number | null;
+  targetFolderResolved?: boolean;
+  tabId?: number;
+}
+
+interface RuntimeMessage {
+  action?: string;
+  payload?: Record<string, unknown>;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 export function initBackground(): void {
   const SHIGUANG_SERVER_URL = "http://127.0.0.1:7845";
   const PREFERENCES_KEY = "shiguangCollectorPreferences";
@@ -7,16 +75,16 @@ export function initBackground(): void {
   const DEDUPE_WINDOW_MS = 1000;
   const IMPORT_QUEUE_LIMIT = 500;
 
-  const importQueue = [];
-  const recentImportTimes = new Map();
+  const importQueue: QueuedImportTask[] = [];
+  const recentImportTimes = new Map<string, number>();
   let activeImportCount = 0;
-  let cachedPreferences = {};
+  let cachedPreferences: NormalizedPreferences = normalizePreferences({});
 
-  function hasOwn(value, key) {
+  function hasOwn(value: object, key: string): boolean {
     return Object.prototype.hasOwnProperty.call(value, key);
   }
 
-  function readStoredPreferences() {
+  function readStoredPreferences(): Promise<NormalizedPreferences> {
     return new Promise((resolve) => {
       chrome.storage.sync.get(PREFERENCES_KEY, (result) => {
         cachedPreferences = normalizePreferences(result?.[PREFERENCES_KEY]);
@@ -36,49 +104,54 @@ export function initBackground(): void {
     drainImportQueue();
   });
 
-  function normalizePreferences(value) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-      return {};
+  function normalizePreferences(value: unknown): NormalizedPreferences {
+    const record = asRecord(value);
+    if (!Object.keys(record).length) {
+      return {
+        importConcurrency: "",
+        targetFolderEnabled: false,
+      };
     }
 
-    const preferences = {
-      importConcurrency: normalizeOptionalNumberText(value.importConcurrency),
-      targetFolderEnabled: value.targetFolderEnabled === true,
+    const preferences: NormalizedPreferences = {
+      importConcurrency: normalizeOptionalNumberText(record.importConcurrency),
+      targetFolderEnabled: record.targetFolderEnabled === true,
     };
 
-    if (value.dragDockEnabled === false || value.dragDockEnabled === true) {
-      preferences.dragDockEnabled = value.dragDockEnabled;
+    if (record.dragDockEnabled === false || record.dragDockEnabled === true) {
+      preferences.dragDockEnabled = record.dragDockEnabled;
     }
 
     return preferences;
   }
 
-  function normalizePreferencePatch(value) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
+  function normalizePreferencePatch(value: unknown): PreferencePatch {
+    const record = asRecord(value);
+    if (!Object.keys(record).length) {
       return {};
     }
 
-    const patch = {};
+    const patch: PreferencePatch = {};
     for (const key of ["importConcurrency"]) {
-      if (hasOwn(value, key)) {
-        patch[key] = normalizeOptionalNumberText(value[key]);
+      if (hasOwn(record, key)) {
+        patch.importConcurrency = normalizeOptionalNumberText(record[key]);
       }
     }
 
-    if (hasOwn(value, "targetFolderEnabled")) {
-      patch.targetFolderEnabled = value.targetFolderEnabled === true;
+    if (hasOwn(record, "targetFolderEnabled")) {
+      patch.targetFolderEnabled = record.targetFolderEnabled === true;
     }
 
-    if (hasOwn(value, "dragDockEnabled")) {
-      if (value.dragDockEnabled === false || value.dragDockEnabled === true) {
-        patch.dragDockEnabled = value.dragDockEnabled;
+    if (hasOwn(record, "dragDockEnabled")) {
+      if (record.dragDockEnabled === false || record.dragDockEnabled === true) {
+        patch.dragDockEnabled = record.dragDockEnabled;
       }
     }
 
     return patch;
   }
 
-  function normalizeOptionalNumberText(value) {
+  function normalizeOptionalNumberText(value: unknown): string {
     if (value === null || value === undefined) {
       return "";
     }
@@ -87,7 +160,7 @@ export function initBackground(): void {
     return /^\d+$/.test(text) ? text : "";
   }
 
-  function normalizeOptionalFolderId(value) {
+  function normalizeOptionalFolderId(value: unknown): string {
     if (value === null || value === undefined || value === "") {
       return "";
     }
@@ -100,17 +173,17 @@ export function initBackground(): void {
     return Number.parseInt(text, 10) > 0 ? text : "";
   }
 
-  function parseFolderId(folderId) {
+  function parseFolderId(folderId: unknown): number | null {
     const normalized = normalizeOptionalFolderId(folderId);
     return normalized ? Number.parseInt(normalized, 10) : null;
   }
 
   async function resolveTargetFolderForSend(
-    tabId,
-    folderId,
+    tabId: number | undefined,
+    folderId: unknown,
     targetFolderResolved = false,
     forcePrompt = false,
-  ) {
+  ): Promise<{ cancelled: boolean; folderId: number | null; error?: string }> {
     const explicitFolderId = parseFolderId(folderId);
     if (explicitFolderId) {
       return { cancelled: false, folderId: explicitFolderId };
@@ -153,7 +226,7 @@ export function initBackground(): void {
     };
   }
 
-  function getImportConcurrency() {
+  function getImportConcurrency(): number {
     const configured = Number.parseInt(cachedPreferences.importConcurrency || "", 10);
     if (!Number.isFinite(configured) || configured <= 0) {
       return DEFAULT_IMPORT_CONCURRENCY;
@@ -162,7 +235,7 @@ export function initBackground(): void {
     return Math.min(configured, 20);
   }
 
-  function cleanRecentImportTimes(now = Date.now()) {
+  function cleanRecentImportTimes(now = Date.now()): void {
     for (const [imageUrl, timestamp] of recentImportTimes) {
       if (now - timestamp > DEDUPE_WINDOW_MS * 6) {
         recentImportTimes.delete(imageUrl);
@@ -170,7 +243,12 @@ export function initBackground(): void {
     }
   }
 
-  async function showPageToast(tabId, message, type = "info", duration = 3000) {
+  async function showPageToast(
+    tabId: number | undefined,
+    message: string,
+    type: ToastType = "info",
+    duration = 3000,
+  ): Promise<boolean> {
     if (!tabId) {
       return false;
     }
@@ -191,7 +269,7 @@ export function initBackground(): void {
     }
   }
 
-  function getErrorMessage(error) {
+  function getErrorMessage(error: unknown): string {
     const message = error instanceof Error ? error.message : String(error || "未知错误");
     if (message === "Failed to fetch") {
       return "无法连接到拾光本地服务（127.0.0.1:7845），请确保拾光应用正在运行";
@@ -199,7 +277,7 @@ export function initBackground(): void {
     return message;
   }
 
-  async function isShiguangServerReachable() {
+  async function isShiguangServerReachable(): Promise<boolean> {
     try {
       const response = await fetch(`${SHIGUANG_SERVER_URL}/api/health`, {
         cache: "no-store",
@@ -210,7 +288,7 @@ export function initBackground(): void {
     }
   }
 
-  async function fetchShiguang(endpoint, options = {}) {
+  async function fetchShiguang(endpoint: string, options: RequestInit = {}): Promise<Response> {
     const url = `${SHIGUANG_SERVER_URL}${endpoint}`;
     try {
       return await fetch(url, options);
@@ -229,18 +307,19 @@ export function initBackground(): void {
     }
   }
 
-  function parseServerErrorText(errorText) {
+  function parseServerErrorText(errorText: string): string {
     if (!errorText) {
       return "";
     }
 
     try {
       const payload = JSON.parse(errorText);
-      if (typeof payload.message === "string" && payload.message) {
-        return payload.message;
+      const payloadRecord = asRecord(payload);
+      if (typeof payloadRecord.message === "string" && payloadRecord.message) {
+        return payloadRecord.message;
       }
-      if (typeof payload.error === "string" && payload.error) {
-        return payload.error;
+      if (typeof payloadRecord.error === "string" && payloadRecord.error) {
+        return payloadRecord.error;
       }
     } catch {
       // Keep plain text errors as-is.
@@ -249,7 +328,7 @@ export function initBackground(): void {
     return errorText;
   }
 
-  async function readShiguangJson(response) {
+  async function readShiguangJson(response: Response): Promise<Record<string, unknown>> {
     if (!response.ok) {
       const errorText = await response.text();
       const message =
@@ -258,20 +337,20 @@ export function initBackground(): void {
       throw new Error(message);
     }
 
-    const result = await response.json();
+    const result = asRecord(await response.json());
     if (!result.success) {
-      throw new Error(result.error || "Unknown error");
+      throw new Error(typeof result.error === "string" ? result.error : "Unknown error");
     }
 
     return result;
   }
 
-  function extensionFromContentType(contentType) {
+  function extensionFromContentType(contentType: unknown): string {
     const mime = String(contentType || "")
       .split(";")[0]
       .trim()
       .toLowerCase();
-    const extensions = {
+    const extensions: Record<string, string> = {
       "image/apng": "png",
       "image/avif": "avif",
       "image/bmp": "bmp",
@@ -288,7 +367,7 @@ export function initBackground(): void {
     return extensions[mime] || "";
   }
 
-  function filenameFromImageUrl(imageUrl, contentType) {
+  function filenameFromImageUrl(imageUrl: string, contentType: string): string {
     let filename = "browser-image";
     try {
       const url = new URL(imageUrl);
@@ -311,7 +390,7 @@ export function initBackground(): void {
     return ext ? `${filename}.${ext}` : filename;
   }
 
-  function splitDataUrl(dataUrl) {
+  function splitDataUrl(dataUrl: string): { bytes: ArrayBuffer; contentType: string } {
     const match = String(dataUrl || "").match(/^data:([^;,]+)?((?:;[^,]+)*),(.*)$/s);
     if (!match) {
       throw new Error("图片数据格式无效");
@@ -335,15 +414,15 @@ export function initBackground(): void {
     };
   }
 
-  function isDataUrl(value) {
+  function isDataUrl(value: unknown): value is string {
     return typeof value === "string" && value.startsWith("data:");
   }
 
-  function isHttpUrl(value) {
+  function isHttpUrl(value: unknown): value is string {
     return typeof value === "string" && /^https?:\/\//i.test(value);
   }
 
-  function dataUrlToFetchResult(dataUrl) {
+  function dataUrlToFetchResult(dataUrl: string): FetchImageResult {
     const { bytes, contentType } = splitDataUrl(dataUrl);
     return {
       bytes,
@@ -352,7 +431,7 @@ export function initBackground(): void {
     };
   }
 
-  async function fetchImageBytesFromBrowser(imageUrl) {
+  async function fetchImageBytesFromBrowser(imageUrl: string): Promise<FetchImageResult> {
     const response = await fetch(imageUrl, {
       cache: "force-cache",
       credentials: "include",
@@ -377,7 +456,10 @@ export function initBackground(): void {
     };
   }
 
-  async function fetchImageBytesFromPage(tabId, imageUrl) {
+  async function fetchImageBytesFromPage(
+    tabId: number | undefined,
+    imageUrl: string,
+  ): Promise<FetchImageResult> {
     if (!tabId) {
       throw new Error("当前标签页不可用，无法使用页面上下文取图");
     }
@@ -385,7 +467,7 @@ export function initBackground(): void {
     const results = await chrome.scripting.executeScript({
       target: { tabId },
       world: "MAIN",
-      func: async (url) => {
+      func: async (url: string) => {
         const response = await fetch(url, {
           cache: "force-cache",
           credentials: "include",
@@ -396,7 +478,7 @@ export function initBackground(): void {
 
         const contentType = response.headers.get("content-type") || "application/octet-stream";
         const blob = await response.blob();
-        const dataUrl = await new Promise((resolve, reject) => {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
           reader.onerror = () => reject(new Error("读取图片数据失败"));
           reader.onloadend = () => resolve(String(reader.result || ""));
@@ -425,9 +507,9 @@ export function initBackground(): void {
     };
   }
 
-  function uniqueImportUrls(urls) {
-    const seen = new Set();
-    const unique = [];
+  function uniqueImportUrls(urls: Iterable<unknown>): string[] {
+    const seen = new Set<string>();
+    const unique: string[] = [];
     for (const url of urls) {
       if (typeof url !== "string" || !url.trim() || seen.has(url)) {
         continue;
@@ -438,7 +520,10 @@ export function initBackground(): void {
     return unique;
   }
 
-  async function resolveImageBytesFromUrl(imageUrl, tabId) {
+  async function resolveImageBytesFromUrl(
+    imageUrl: string,
+    tabId: number | undefined,
+  ): Promise<FetchImageResult> {
     if (isDataUrl(imageUrl)) {
       return dataUrlToFetchResult(imageUrl);
     }
@@ -460,12 +545,12 @@ export function initBackground(): void {
     }
   }
 
-  async function resolveImageBytes(task) {
+  async function resolveImageBytes(task: ImportTask): Promise<FetchImageResult> {
     const candidateUrls = uniqueImportUrls([
       ...(Array.isArray(task.candidateUrls) ? task.candidateUrls : []),
       task.imageUrl,
     ]);
-    const errors = [];
+    const errors: string[] = [];
 
     for (const candidateUrl of candidateUrls) {
       try {
@@ -485,7 +570,7 @@ export function initBackground(): void {
     throw new Error(errors.length ? errors.join("；") : "未找到可采集的图片数据");
   }
 
-  async function importImageBytesToShiguang(task) {
+  async function importImageBytesToShiguang(task: ImportTask): Promise<Record<string, unknown>> {
     const { bytes, contentType, finalUrl } = await resolveImageBytes(task);
     return importBytesToShiguang(bytes, {
       filename: filenameFromImageUrl(finalUrl || task.imageUrl, contentType),
@@ -497,15 +582,15 @@ export function initBackground(): void {
   }
 
   async function importBytesToShiguang(
-    bytes,
+    bytes: ArrayBuffer,
     {
       filename = "screenshot.png",
       contentType = "application/octet-stream",
       folderId,
       sourceUrl = "",
       metadata = null,
-    } = {},
-  ) {
+    }: ImportBytesOptions = {},
+  ): Promise<Record<string, unknown>> {
     const params = new URLSearchParams({
       filename,
     });
@@ -532,7 +617,10 @@ export function initBackground(): void {
     return readShiguangJson(response);
   }
 
-  async function importDataUrlToShiguang(dataUrl, options = {}) {
+  async function importDataUrlToShiguang(
+    dataUrl: string,
+    options: ScreenshotImportOptions = {},
+  ): Promise<Record<string, unknown> | { success: false; cancelled: true; error: string }> {
     const target = await resolveTargetFolderForSend(
       options.tabId,
       options.folderId,
@@ -552,7 +640,7 @@ export function initBackground(): void {
     });
   }
 
-  function enqueueImportTask(task) {
+  function enqueueImportTask(task: ImportTask): Promise<unknown> {
     const now = Date.now();
     cleanRecentImportTimes(now);
 
@@ -581,11 +669,14 @@ export function initBackground(): void {
     });
   }
 
-  function drainImportQueue() {
+  function drainImportQueue(): void {
     const maxConcurrency = getImportConcurrency();
 
     while (activeImportCount < maxConcurrency && importQueue.length > 0) {
       const task = importQueue.shift();
+      if (!task) {
+        break;
+      }
       activeImportCount += 1;
 
       runImportTask(task)
@@ -603,7 +694,7 @@ export function initBackground(): void {
     }
   }
 
-  async function runImportTask(task) {
+  async function runImportTask(task: ImportTask): Promise<Record<string, unknown>> {
     try {
       const result = await importImageBytesToShiguang(task);
       if (task.notifyOnSuccess) {
@@ -643,7 +734,7 @@ export function initBackground(): void {
     targetFolderResolved = false,
     forceTargetFolder = false,
     renderedImageDataUrl = null,
-  }) {
+  }: CollectImageOptions): Promise<unknown> {
     if (!imageUrl) {
       if (notifyOnError) {
         await notifyResult(tabId, missingImageMessage, "error");
@@ -680,7 +771,12 @@ export function initBackground(): void {
     });
   }
 
-  async function notifyResult(tabId, message, type = "info", duration = 3000) {
+  async function notifyResult(
+    tabId: number | undefined,
+    message: string,
+    type: ToastType = "info",
+    duration = 3000,
+  ): Promise<void> {
     const shownInPage = await showPageToast(tabId, message, type, duration);
     if (shownInPage) {
       return;
@@ -756,7 +852,7 @@ export function initBackground(): void {
     }
   });
 
-  async function sendMessageToTab(tabId, message) {
+  async function sendMessageToTab(tabId: number | undefined, message: RuntimeMessage) {
     if (!tabId) {
       return false;
     }
@@ -770,16 +866,19 @@ export function initBackground(): void {
     }
   }
 
-  async function getActiveTab() {
+  async function getActiveTab(): Promise<chrome.tabs.Tab | null> {
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
     return tabs[0] || null;
   }
 
-  async function captureVisibleDataUrl(tab) {
+  async function captureVisibleDataUrl(tab: chrome.tabs.Tab): Promise<string> {
     return chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
   }
 
-  async function captureVisibleAndImport(tab, options = {}) {
+  async function captureVisibleAndImport(
+    tab: chrome.tabs.Tab,
+    options: ScreenshotImportOptions = {},
+  ) {
     const dataUrl = await captureVisibleDataUrl(tab);
     return importDataUrlToShiguang(dataUrl, {
       filename: "visible-screenshot.png",
@@ -789,8 +888,9 @@ export function initBackground(): void {
     });
   }
 
-  function sendImportResponse(sendResponse, result) {
-    if (result?.cancelled) {
+  function sendImportResponse(sendResponse: (response?: unknown) => void, result: unknown): void {
+    const resultRecord = asRecord(result);
+    if (resultRecord.cancelled) {
       sendResponse(result);
       return;
     }
@@ -798,7 +898,7 @@ export function initBackground(): void {
     sendResponse({ success: true, result });
   }
 
-  async function fetchFoldersFromShiguang() {
+  async function fetchFoldersFromShiguang(): Promise<Record<string, unknown>> {
     const response = await fetchShiguang("/api/folders");
     return readShiguangJson(response);
   }
@@ -856,12 +956,12 @@ export function initBackground(): void {
   });
 
   // Check server connection
-  async function checkServerConnection() {
+  async function checkServerConnection(): Promise<boolean> {
     return isShiguangServerReachable();
   }
 
   // Messages from content scripts and the collector panel.
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResponse) => {
     if (message.action === "checkConnection") {
       checkServerConnection()
         .then((connected) => sendResponse({ connected }))
@@ -873,19 +973,29 @@ export function initBackground(): void {
       const payload = message.payload || {};
       collectImage({
         tabId: _sender.tab?.id,
-        imageUrl: payload.imageUrl,
-        candidateUrls: Array.isArray(payload.candidateUrls) ? payload.candidateUrls : [],
-        referer: payload.referer || _sender.tab?.url,
-        sourceUrl: payload.sourceUrl || payload.source_url || payload.referer || _sender.tab?.url,
-        metadata: payload.metadata || null,
-        missingImageMessage: payload.missingImageMessage || "未找到可采集的图片",
+        imageUrl: typeof payload.imageUrl === "string" ? payload.imageUrl : "",
+        candidateUrls: Array.isArray(payload.candidateUrls)
+          ? payload.candidateUrls.filter((url): url is string => typeof url === "string")
+          : [],
+        referer: typeof payload.referer === "string" ? payload.referer : _sender.tab?.url,
+        sourceUrl:
+          (typeof payload.sourceUrl === "string" && payload.sourceUrl) ||
+          (typeof payload.source_url === "string" && payload.source_url) ||
+          (typeof payload.referer === "string" && payload.referer) ||
+          _sender.tab?.url,
+        metadata: (payload.metadata as CollectionMetadata | null) || null,
+        missingImageMessage:
+          (typeof payload.missingImageMessage === "string" && payload.missingImageMessage) ||
+          "未找到可采集的图片",
         notifyOnError: false,
         notifyOnSuccess: payload.notifyOnSuccess === true,
-        successMessage: payload.successMessage || "已发送到拾光",
-        folderId: payload.folderId ?? payload.folder_id,
+        successMessage:
+          (typeof payload.successMessage === "string" && payload.successMessage) || "已发送到拾光",
+        folderId: normalizeOptionalFolderId(payload.folderId ?? payload.folder_id),
         targetFolderResolved: payload.targetFolderResolved === true,
         forceTargetFolder: payload.forceTargetFolder === true,
-        renderedImageDataUrl: payload.renderedImageDataUrl,
+        renderedImageDataUrl:
+          typeof payload.renderedImageDataUrl === "string" ? payload.renderedImageDataUrl : null,
       })
         .then(sendResponse)
         .catch((error) => sendResponse({ success: false, error: getErrorMessage(error) }));
@@ -934,7 +1044,7 @@ export function initBackground(): void {
       }
 
       captureVisibleAndImport(tab, {
-        folderId: payload.folderId ?? payload.folder_id,
+        folderId: normalizeOptionalFolderId(payload.folderId ?? payload.folder_id),
         targetFolderResolved: payload.targetFolderResolved === true,
       })
         .then((result) => sendImportResponse(sendResponse, result))
@@ -957,14 +1067,14 @@ export function initBackground(): void {
 
     if (message.action === "importScreenshotDataUrl") {
       const payload = message.payload || {};
-      if (!payload.dataUrl) {
+      if (typeof payload.dataUrl !== "string" || !payload.dataUrl) {
         sendResponse({ success: false, error: "缺少截图数据" });
         return true;
       }
 
       importDataUrlToShiguang(payload.dataUrl, {
-        filename: payload.filename || "screenshot.png",
-        folderId: payload.folderId ?? payload.folder_id,
+        filename: (typeof payload.filename === "string" && payload.filename) || "screenshot.png",
+        folderId: normalizeOptionalFolderId(payload.folderId ?? payload.folder_id),
         targetFolderResolved: payload.targetFolderResolved === true,
         tabId: _sender.tab?.id,
       })

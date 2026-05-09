@@ -1,6 +1,16 @@
 // 拾光采集器 - 页面内面板工具
 
-export function escapeHtml(value) {
+import type { CollectionMetadata, Collector } from "../types";
+
+interface ScannedImage {
+  url: string;
+  width: number;
+  height: number;
+  sourceUrl: string | null;
+  metadata: CollectionMetadata | null;
+}
+
+export function escapeHtml(value: unknown): string {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -9,7 +19,7 @@ export function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-export function parseOptionalInt(value) {
+export function parseOptionalInt(value: unknown): number | null {
   const parsed = Number.parseInt(String(value || "").trim(), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
@@ -27,7 +37,7 @@ const IMAGE_DATA_ATTRIBUTES = [
   "url",
 ];
 
-function parseSrcset(srcset, collector) {
+function parseSrcset(srcset: string | null | undefined, collector: Collector): string | null {
   if (typeof srcset !== "string" || !srcset.trim()) {
     return null;
   }
@@ -55,11 +65,16 @@ function parseSrcset(srcset, collector) {
   return collector.normalizeImageUrl(candidates[0].url);
 }
 
-export function scanPageImages(collector) {
-  const images = new Map();
+export function scanPageImages(collector: Collector): ScannedImage[] {
+  const images = new Map<string, ScannedImage>();
 
-  function addImage(url, width = 0, height = 0, sourceElement = null) {
-    const payload = collector.resolveCollectionPayload?.(sourceElement, url, {
+  function addImage(
+    url: string | null | undefined,
+    width = 0,
+    height = 0,
+    sourceElement: EventTarget | Node | null = null,
+  ): void {
+    const payload = collector.resolveCollectionPayload(sourceElement, url, {
       pageUrl: window.location.href,
     });
     const normalized = collector.normalizeImageUrl(payload?.imageUrl || url);
@@ -79,18 +94,22 @@ export function scanPageImages(collector) {
         metadata,
       });
     } else {
-      if (sourceUrl && !images.get(normalized).sourceUrl) {
-        images.get(normalized).sourceUrl = sourceUrl;
+      const image = images.get(normalized);
+      if (!image) {
+        return;
       }
-      if (metadata && !images.get(normalized).metadata) {
-        images.get(normalized).metadata = metadata;
+      if (sourceUrl && !image.sourceUrl) {
+        image.sourceUrl = sourceUrl;
+      }
+      if (metadata && !image.metadata) {
+        image.metadata = metadata;
       }
     }
   }
 
   document.querySelectorAll("img").forEach((img) => {
     addImage(
-      collector.getImageUrlFromElement?.(img),
+      collector.getImageUrlFromElement(img),
       img.naturalWidth || img.width,
       img.naturalHeight || img.height,
       img,
@@ -140,10 +159,11 @@ export function scanPageImages(collector) {
       "[data-src], [data-original], [data-lazy], [data-large], [data-full], [data-full-size], [data-original-src], [data-srcset], [data-pin-media], [data-image]",
     )
     .forEach((element) => {
-      addImage(collector.getImageUrlFromElement?.(element), 0, 0, element);
-      addImage(parseSrcset(element.dataset.srcset, collector), 0, 0, element);
+      addImage(collector.getImageUrlFromElement(element), 0, 0, element);
+      const htmlElement = element instanceof HTMLElement ? element : null;
+      addImage(parseSrcset(htmlElement?.dataset.srcset, collector), 0, 0, element);
       for (const attribute of IMAGE_DATA_ATTRIBUTES) {
-        addImage(element.dataset[attribute], 0, 0, element);
+        addImage(htmlElement?.dataset[attribute], 0, 0, element);
       }
     });
 
@@ -162,7 +182,7 @@ export function scanPageImages(collector) {
   return [...images.values()];
 }
 
-export function cropDataUrl(dataUrl, rect) {
+export function cropDataUrl(dataUrl: string, rect: DOMRect): Promise<string> {
   return new Promise((resolve, reject) => {
     const image = new Image();
     image.onload = () => {
@@ -177,6 +197,10 @@ export function cropDataUrl(dataUrl, rect) {
       canvas.width = sourceWidth;
       canvas.height = sourceHeight;
       const context = canvas.getContext("2d");
+      if (!context) {
+        reject(new Error("无法创建截图画布"));
+        return;
+      }
       context.drawImage(
         image,
         sourceX,

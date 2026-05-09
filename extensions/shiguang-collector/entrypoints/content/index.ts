@@ -6,6 +6,21 @@ import { createDragDock } from "../../lib/content/drag-dock";
 import { createPanel } from "../../lib/content/panel";
 import { siteMetadata } from "../../lib/content/site-metadata";
 import { initSiteAdapters } from "../../lib/site-adapters";
+import type { CollectionPayload, ToastType } from "../../lib/types";
+
+interface DragPreviewSize {
+  width: number;
+  height: number;
+}
+
+interface ContentRuntimeMessage {
+  action?: string;
+  payload?: {
+    message?: string;
+    type?: ToastType;
+    duration?: number;
+  };
+}
 
 export default defineContentScript({
   matches: ["<all_urls>"],
@@ -18,8 +33,11 @@ export default defineContentScript({
 
     initSiteAdapters(collector);
 
-    function findPreviewImageElement(target) {
-      const element = target?.nodeType === Node.TEXT_NODE ? target.parentElement : target;
+    function findPreviewImageElement(target: EventTarget | Node | null): HTMLImageElement | null {
+      const element =
+        target instanceof Node && target.nodeType === Node.TEXT_NODE
+          ? target.parentElement
+          : target;
       if (!(element instanceof Element)) {
         return null;
       }
@@ -28,10 +46,10 @@ export default defineContentScript({
         return element;
       }
 
-      return element.querySelector("img");
+      return element.querySelector<HTMLImageElement>("img");
     }
 
-    function ensureDragPreviewContainer() {
+    function ensureDragPreviewContainer(): HTMLElement {
       let container = document.getElementById(DRAG_PREVIEW_ID);
       if (container) {
         return container;
@@ -50,7 +68,7 @@ export default defineContentScript({
       return container;
     }
 
-    function getCompactDragPreviewSize(image) {
+    function getCompactDragPreviewSize(image: HTMLImageElement): DragPreviewSize | null {
       const width = image.naturalWidth || image.width || image.getBoundingClientRect().width;
       const height = image.naturalHeight || image.height || image.getBoundingClientRect().height;
       if (!width || !height) {
@@ -64,7 +82,10 @@ export default defineContentScript({
       };
     }
 
-    function createCanvasDragPreview(image, size) {
+    function createCanvasDragPreview(
+      image: HTMLImageElement,
+      size: DragPreviewSize,
+    ): HTMLCanvasElement | null {
       const canvas = document.createElement("canvas");
       const pixelRatio = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
       canvas.width = Math.round(size.width * pixelRatio);
@@ -87,8 +108,11 @@ export default defineContentScript({
       return canvas;
     }
 
-    function createCloneDragPreview(image, size) {
-      const preview = image.cloneNode(false);
+    function createCloneDragPreview(
+      image: HTMLImageElement,
+      size: DragPreviewSize,
+    ): HTMLImageElement {
+      const preview = image.cloneNode(false) as HTMLImageElement;
       preview.removeAttribute("id");
       preview.src = image.currentSrc || image.src;
       preview.style.cssText = [
@@ -103,7 +127,7 @@ export default defineContentScript({
       return preview;
     }
 
-    function setCompactDragImage(event, target) {
+    function setCompactDragImage(event: DragEvent, target: EventTarget | Node | null): void {
       const image = findPreviewImageElement(target);
       if (!event.dataTransfer || !image) {
         return;
@@ -114,7 +138,7 @@ export default defineContentScript({
         return;
       }
 
-      let preview = null;
+      let preview: HTMLElement | null = null;
       try {
         preview = createCanvasDragPreview(image, size);
       } catch (error) {
@@ -128,14 +152,15 @@ export default defineContentScript({
       event.dataTransfer.setDragImage(preview, 0, 0);
     }
 
-    function getImageUrlFromPointerEvent(event) {
+    function getImageUrlFromPointerEvent(event: MouseEvent): string | null {
       return (
         collector.getImageUrlFromElement(event.target) ||
-        collector.getImageUrlFromPoint?.(event.clientX, event.clientY)
+        collector.getImageUrlFromPoint?.(event.clientX, event.clientY) ||
+        null
       );
     }
 
-    async function collectImageFromEvent(event, label) {
+    async function collectImageFromEvent(event: MouseEvent, label: string): Promise<boolean> {
       const target = event.target;
       const imageUrl = getImageUrlFromPointerEvent(event);
 
@@ -143,7 +168,10 @@ export default defineContentScript({
         return false;
       }
 
-      const collectionPayload = collector.setLastImageContext(target, imageUrl);
+      const collectionPayload: CollectionPayload | null = collector.setLastImageContext(
+        target,
+        imageUrl,
+      );
 
       event.preventDefault();
       event.stopPropagation();
@@ -258,80 +286,82 @@ export default defineContentScript({
       true,
     );
 
-    chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-      if (message.action === "getLastImageUrl") {
-        sendResponse({
-          imageUrl: collector.getLastImageUrl(),
-          sourceUrl: collector.getLastSourceUrl?.() || null,
-          collectionPayload: collector.getLastCollectionPayload?.() || null,
-          candidateUrls: collector.getLastCollectionPayload?.()?.candidateUrls || [],
-          renderedImageDataUrl:
-            collector.getRenderedImageDataUrl?.(
-              collector.getLastRightClickTarget?.(),
-              collector.getLastImageUrl(),
-            ) || null,
-        });
-        return true;
-      }
-
-      if (message.action === "showToast") {
-        const payload = message.payload || {};
-        collector.showToast(
-          payload.message || "",
-          payload.type || "info",
-          payload.duration || 3000,
-        );
-        sendResponse({ success: true });
-        return true;
-      }
-
-      if (message.action === "togglePanel") {
-        panel?.togglePanel?.();
-        sendResponse({ success: Boolean(panel) });
-        return true;
-      }
-
-      if (message.action === "selectTargetFolder") {
-        if (!panel?.selectTargetFolder) {
-          sendResponse({ success: false, error: "当前页面无法选择目标文件夹" });
+    chrome.runtime.onMessage.addListener(
+      (message: ContentRuntimeMessage, _sender, sendResponse) => {
+        if (message.action === "getLastImageUrl") {
+          sendResponse({
+            imageUrl: collector.getLastImageUrl(),
+            sourceUrl: collector.getLastSourceUrl() || null,
+            collectionPayload: collector.getLastCollectionPayload() || null,
+            candidateUrls: collector.getLastCollectionPayload()?.candidateUrls || [],
+            renderedImageDataUrl:
+              collector.getRenderedImageDataUrl(
+                collector.getLastRightClickTarget(),
+                collector.getLastImageUrl(),
+              ) || null,
+          });
           return true;
         }
 
-        panel
-          .selectTargetFolder()
-          .then(sendResponse)
-          .catch((error) =>
-            sendResponse({ success: false, error: collector.getErrorMessage(error) }),
+        if (message.action === "showToast") {
+          const payload = message.payload || {};
+          collector.showToast(
+            payload.message || "",
+            payload.type || "info",
+            payload.duration || 3000,
           );
-        return true;
-      }
-
-      if (message.action === "startAreaCapture") {
-        panel?.startAreaCapture?.();
-        sendResponse({ success: Boolean(panel) });
-        return true;
-      }
-
-      if (message.action === "startElementCapture") {
-        panel?.startElementCapture?.();
-        sendResponse({ success: Boolean(panel) });
-        return true;
-      }
-
-      if (message.action === "captureVisibleFromPage") {
-        if (!panel?.captureVisibleScreenshot) {
-          sendResponse({ success: false });
+          sendResponse({ success: true });
           return true;
         }
 
-        panel
-          .captureVisibleScreenshot()
-          .then(() => sendResponse({ success: true }))
-          .catch((error) =>
-            sendResponse({ success: false, error: collector.getErrorMessage(error) }),
-          );
-        return true;
-      }
-    });
+        if (message.action === "togglePanel") {
+          panel?.togglePanel?.();
+          sendResponse({ success: Boolean(panel) });
+          return true;
+        }
+
+        if (message.action === "selectTargetFolder") {
+          if (!panel?.selectTargetFolder) {
+            sendResponse({ success: false, error: "当前页面无法选择目标文件夹" });
+            return true;
+          }
+
+          panel
+            .selectTargetFolder()
+            .then(sendResponse)
+            .catch((error) =>
+              sendResponse({ success: false, error: collector.getErrorMessage(error) }),
+            );
+          return true;
+        }
+
+        if (message.action === "startAreaCapture") {
+          panel?.startAreaCapture?.();
+          sendResponse({ success: Boolean(panel) });
+          return true;
+        }
+
+        if (message.action === "startElementCapture") {
+          panel?.startElementCapture?.();
+          sendResponse({ success: Boolean(panel) });
+          return true;
+        }
+
+        if (message.action === "captureVisibleFromPage") {
+          if (!panel?.captureVisibleScreenshot) {
+            sendResponse({ success: false });
+            return true;
+          }
+
+          panel
+            .captureVisibleScreenshot()
+            .then(() => sendResponse({ success: true }))
+            .catch((error) =>
+              sendResponse({ success: false, error: collector.getErrorMessage(error) }),
+            );
+          return true;
+        }
+      },
+    );
   },
 });

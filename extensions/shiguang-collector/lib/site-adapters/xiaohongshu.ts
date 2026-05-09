@@ -1,8 +1,10 @@
 // Xiaohongshu Site Integration
 
+import type { Collector } from "../types";
+
 let initialized = false;
 
-export function initXiaohongshu(collector) {
+export function initXiaohongshu(collector: Collector): void {
   if (!window.location.hostname.includes("xiaohongshu.com")) {
     return;
   }
@@ -22,7 +24,7 @@ export function initXiaohongshu(collector) {
     "a[href*='xiaohongshu.com/search_result/']",
   ];
 
-  function normalizeXiaohongshuSourceUrl(href) {
+  function normalizeXiaohongshuSourceUrl(href: unknown): string | null {
     if (typeof href !== "string" || !href.trim()) {
       return null;
     }
@@ -53,7 +55,7 @@ export function initXiaohongshu(collector) {
     return null;
   }
 
-  function getSourceUrlFromLink(link) {
+  function getSourceUrlFromLink(link: Element | null): string | null {
     if (!(link instanceof HTMLAnchorElement)) {
       return null;
     }
@@ -61,8 +63,9 @@ export function initXiaohongshu(collector) {
     return normalizeXiaohongshuSourceUrl(link.getAttribute("href") || link.href);
   }
 
-  function findNoteSourceUrl(target) {
-    const element = target?.nodeType === Node.TEXT_NODE ? target.parentElement : target;
+  function findNoteSourceUrl(target: EventTarget | Node | null): string | null {
+    const element =
+      target instanceof Node && target.nodeType === Node.TEXT_NODE ? target.parentElement : target;
     if (!(element instanceof Element)) {
       return normalizeXiaohongshuSourceUrl(window.location.href);
     }
@@ -89,7 +92,10 @@ export function initXiaohongshu(collector) {
 
   collector.registerSourceUrlResolver(findNoteSourceUrl);
 
-  function injectMenuItem(menuContainer) {
+  function injectMenuItem(menuContainer: Element): void {
+    if (!(menuContainer instanceof HTMLElement)) {
+      return;
+    }
     if (!menuContainer || menuContainer.dataset.shiguangInjected) {
       return;
     }
@@ -106,7 +112,7 @@ export function initXiaohongshu(collector) {
       event.stopPropagation();
 
       let imageUrl = collector.getLastImageUrl();
-      let imageTarget = collector.getLastRightClickTarget();
+      let imageTarget: EventTarget | Node | null = collector.getLastRightClickTarget();
 
       if (!imageUrl && imageTarget) {
         imageUrl = collector.getImageUrlFromElement(imageTarget);
@@ -118,7 +124,7 @@ export function initXiaohongshu(collector) {
         );
 
         if (allImages.length > 0) {
-          let closestImg = null;
+          let closestImg: HTMLImageElement | null = null;
           let closestDist = Infinity;
 
           for (const img of allImages) {
@@ -199,11 +205,12 @@ export function initXiaohongshu(collector) {
       for (const mutation of mutations) {
         for (const node of mutation.addedNodes) {
           if (node.nodeType === Node.ELEMENT_NODE) {
-            const menuContainer = node.classList?.contains("context-menu-container")
-              ? node
-              : node.querySelector?.(".context-menu-container");
+            const element = node instanceof Element ? node : null;
+            const menuContainer = element?.classList.contains("context-menu-container")
+              ? element
+              : element?.querySelector(".context-menu-container");
 
-            if (menuContainer && !menuContainer.dataset.shiguangInjected) {
+            if (menuContainer instanceof HTMLElement && !menuContainer.dataset.shiguangInjected) {
               injectMenuItem(menuContainer);
             }
           }
@@ -212,7 +219,7 @@ export function initXiaohongshu(collector) {
         const existingMenus = document.querySelectorAll(
           ".context-menu-container:not([data-shiguang-injected])",
         );
-        existingMenus.forEach(injectMenuItem);
+        existingMenus.forEach((menu) => injectMenuItem(menu));
       }
     });
 

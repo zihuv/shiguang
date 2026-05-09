@@ -1,19 +1,50 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Collector } from "../types";
 
-function createCollector() {
+function createCollector(): Collector {
   return {
+    state: {
+      lastCollectionPayload: null,
+      lastImageUrl: null,
+      lastRightClickTarget: null,
+      lastSourceUrl: null,
+    },
     extractImageUrlFromDragEvent: vi.fn(() => null),
+    getImageUrlFromElement: vi.fn(() => null),
+    getImageUrlFromPoint: vi.fn(() => null),
     getLastImageUrl: vi.fn(() => null),
+    getLastSourceUrl: vi.fn(() => null),
+    getLastCollectionPayload: vi.fn(() => null),
+    getLastRightClickTarget: vi.fn(() => null),
+    getRenderedImageDataUrl: vi.fn(() => null),
+    normalizeImageUrl: vi.fn((url: unknown) => (typeof url === "string" ? url : null)),
     requestCollectImage: vi.fn(async () => ({ success: true })),
+    resolveSourceUrlFromElement: vi.fn(() => null),
     resolveCollectionPayload: vi.fn(() => null),
+    registerSourceUrlResolver: vi.fn(),
+    setLastImageContext: vi.fn(() => null),
     showToast: vi.fn(),
-    getErrorMessage: vi.fn((error) => error?.message || String(error)),
+    getErrorMessage: vi.fn((error: unknown) =>
+      error instanceof Error ? error.message : String(error),
+    ),
   };
 }
 
-function setupDom(preferences = {}, foldersResponse = null) {
+function setupDom(preferences = {}, foldersResponse: unknown = null) {
   document.body.innerHTML = "";
-  window.matchMedia = vi.fn(() => ({ matches: false }));
+  window.matchMedia = vi.fn(
+    (query: string) =>
+      ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }) as unknown as MediaQueryList,
+  );
   vi.stubGlobal("chrome", {
     runtime: {
       lastError: null,
@@ -46,7 +77,7 @@ function flushPromises() {
   return new Promise((resolve) => window.setTimeout(resolve, 0));
 }
 
-function setViewportSize(width, height) {
+function setViewportSize(width: number, height: number) {
   Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
   Object.defineProperty(window, "innerHeight", { configurable: true, value: height });
 }
@@ -193,7 +224,7 @@ describe("collector drag dock", () => {
     dragDock.showDragDock("https://example.com/image.jpg");
     await flushPromises();
 
-    const folderList = document.querySelector('[data-shiguang-folder-list="true"]');
+    const folderList = document.querySelector<HTMLElement>('[data-shiguang-folder-list="true"]')!;
     Object.defineProperties(folderList, {
       clientHeight: { configurable: true, value: 100 },
       scrollHeight: { configurable: true, value: 600 },
@@ -240,7 +271,7 @@ describe("collector drag dock", () => {
     dragDock.showDragDock("https://example.com/image.jpg");
     await flushPromises();
 
-    const folderList = document.querySelector('[data-shiguang-folder-list="true"]');
+    const folderList = document.querySelector<HTMLElement>('[data-shiguang-folder-list="true"]')!;
     Object.defineProperties(folderList, {
       clientHeight: { configurable: true, value: 100 },
       scrollHeight: { configurable: true, value: 600 },
@@ -315,7 +346,7 @@ describe("collector drag dock", () => {
     dragDock.showDragDock("https://example.com/image.jpg");
     await flushPromises();
 
-    const designTarget = document.querySelector('[data-shiguang-folder-id="42"]');
+    const designTarget = document.querySelector<HTMLElement>('[data-shiguang-folder-id="42"]')!;
     expect(designTarget).not.toBeUndefined();
 
     designTarget.dispatchEvent(new Event("drop", { bubbles: true, cancelable: true }));

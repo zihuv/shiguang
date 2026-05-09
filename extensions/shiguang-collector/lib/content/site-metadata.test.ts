@@ -38,9 +38,9 @@ describe("collector site metadata", () => {
 
     expect(payload.imageUrl).toBe("https://images.unsplash.com/photo-123?w=640");
     expect(payload.candidateUrls[0]).toBe("https://images.unsplash.com/photo-123");
-    expect(payload.metadata.provider).toBe("Unsplash");
-    expect(payload.metadata.author).toBe("heinoeisner");
-    expect(payload.metadata.title).toBe("A Deer in Snow");
+    expect(payload.metadata!.provider).toBe("Unsplash");
+    expect(payload.metadata!.author).toBe("heinoeisner");
+    expect(payload.metadata!.title).toBe("A Deer in Snow");
   });
 
   it("keeps the loaded Pexels image url and resolves the detail source page", async () => {
@@ -70,7 +70,7 @@ describe("collector site metadata", () => {
     expect(payload.candidateUrls[0]).toBe(
       "https://images.pexels.com/photos/12345/pexels-photo-12345.jpeg?auto=compress",
     );
-    expect(payload.metadata.provider).toBe("Pexels");
+    expect(payload.metadata!.provider).toBe("Pexels");
   });
 
   it("keeps the loaded Wikimedia image url while preserving the source page", async () => {
@@ -101,7 +101,7 @@ describe("collector site metadata", () => {
     expect(payload.candidateUrls[0]).toBe(
       "https://upload.wikimedia.org/wikipedia/commons/a/a9/Example.jpg",
     );
-    expect(payload.metadata.provider).toBe("Wikimedia Commons");
+    expect(payload.metadata!.provider).toBe("Wikimedia Commons");
     expect(payload.sourceUrl).toBe("https://commons.wikimedia.org/wiki/File:Example.jpg");
   });
 
@@ -125,7 +125,7 @@ describe("collector site metadata", () => {
     expect(payload.imageUrl).toBe("https://i.pinimg.com/236x/aa/bb/cc/example.jpg");
     expect(payload.candidateUrls[0]).toBe("https://i.pinimg.com/originals/aa/bb/cc/example.jpg");
     expect(payload.sourceUrl).toBe("https://www.pinterest.com/pin/123456789/");
-    expect(payload.metadata.provider).toBe("Pinterest");
+    expect(payload.metadata!.provider).toBe("Pinterest");
   });
 
   it("resolves Behance project metadata from the current page DOM", async () => {
@@ -153,8 +153,8 @@ describe("collector site metadata", () => {
       "https://mir-s3-cdn-cf.behance.net/project_modules/source/example.jpg",
     );
     expect(payload.sourceUrl).toBe("https://www.behance.net/gallery/12345/Brand-System");
-    expect(payload.metadata.title).toBe("Brand System");
-    expect(payload.metadata.provider).toBe("Behance");
+    expect(payload.metadata!.title).toBe("Brand System");
+    expect(payload.metadata!.provider).toBe("Behance");
   });
 
   it("resolves Dribbble shot pages and strips teaser size suffixes", async () => {
@@ -182,7 +182,7 @@ describe("collector site metadata", () => {
       "https://cdn.dribbble.com/userupload/1/file/original-example.jpg",
     );
     expect(payload.sourceUrl).toBe("https://dribbble.com/shots/123-Dashboard");
-    expect(payload.metadata.provider).toBe("Dribbble");
+    expect(payload.metadata!.provider).toBe("Dribbble");
   });
 
   it("resolves ArtStation artwork pages and larger CDN image paths", async () => {
@@ -209,7 +209,7 @@ describe("collector site metadata", () => {
       "https://cdna.artstation.com/p/assets/images/images/001/large/example.jpg",
     );
     expect(payload.sourceUrl).toBe("https://www.artstation.com/artwork/abc123");
-    expect(payload.metadata.author).toBe("Ada Artist");
+    expect(payload.metadata!.author).toBe("Ada Artist");
   });
 
   it("resolves pixiv artwork pages and original image paths from loaded thumbnails", async () => {
@@ -237,7 +237,7 @@ describe("collector site metadata", () => {
       "https://i.pximg.net/img-original/img/2025/01/01/00/00/00/12345678_p0.jpg",
     );
     expect(payload.sourceUrl).toBe("https://www.pixiv.net/artworks/12345678");
-    expect(payload.metadata.provider).toBe("pixiv");
+    expect(payload.metadata!.provider).toBe("pixiv");
   });
 
   it("keeps Xiaohongshu page image urls while adding Eagle-style enlarged candidates", async () => {
@@ -264,6 +264,6 @@ describe("collector site metadata", () => {
       "https://sns-img-al.xhscdn.com/notes_pre_post/1040g3k831vldn71o2abg5pqhkkdndgpj2feg19g",
     );
     expect(payload.candidateUrls).toContain(imageUrl);
-    expect(payload.metadata.provider).toBe("小红书");
+    expect(payload.metadata!.provider).toBe("小红书");
   });
 });

@@ -4,7 +4,7 @@
     "allowJs": false,
     "checkJs": false,
     "jsx": "react-jsx",
-    "strict": false,
+    "strict": true,
     "types": ["chrome", "vitest/globals", "@testing-library/jest-dom"]
   }
 }

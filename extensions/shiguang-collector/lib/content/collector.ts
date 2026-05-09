@@ -1,16 +1,39 @@
 // Content Script Shared Utilities
 
-export function createCollector(siteMetadata = null) {
+import type {
+  CollectionMetadata,
+  CollectionPayload,
+  Collector,
+  RequestCollectImageOptions,
+  SiteMetadataService,
+  ToastType,
+} from "../types";
+
+type SourceUrlResolver = (element: Element, imageUrl: string) => string | null;
+
+interface CollectorState {
+  lastImageUrl: string | null;
+  lastRightClickTarget: EventTarget | Node | null;
+  lastSourceUrl: string | null;
+  lastCollectionPayload: CollectionPayload | null;
+}
+
+interface DragCandidate {
+  url: string;
+  score: number;
+}
+
+export function createCollector(siteMetadata: SiteMetadataService | null = null): Collector {
   const TOAST_CONTAINER_ID = "shiguang-toast-container";
   const TOAST_REMOVE_DELAY = 240;
 
-  const state = {
+  const state: CollectorState = {
     lastImageUrl: null,
     lastRightClickTarget: null,
     lastSourceUrl: null,
     lastCollectionPayload: null,
   };
-  const sourceUrlResolvers = [];
+  const sourceUrlResolvers: SourceUrlResolver[] = [];
 
   function ensureToastContainer() {
     let container = document.getElementById(TOAST_CONTAINER_ID);
@@ -38,7 +61,7 @@ export function createCollector(siteMetadata = null) {
     return container;
   }
 
-  function showToast(message, type = "info", duration = 3000) {
+  function showToast(message: string, type: ToastType = "info", duration = 3000): void {
     const theme = {
       success: {
         border: "#16a34a",
@@ -122,7 +145,7 @@ export function createCollector(siteMetadata = null) {
     window.setTimeout(removeToast, duration);
   }
 
-  function getErrorMessage(error) {
+  function getErrorMessage(error: unknown): string {
     const message = error instanceof Error ? error.message : String(error || "网络错误");
     if (message === "Failed to fetch") {
       return "无法连接到拾光本地服务（127.0.0.1:7845），请确保拾光应用正在运行";
@@ -130,7 +153,7 @@ export function createCollector(siteMetadata = null) {
     return message;
   }
 
-  async function requestCollectImage(imageUrl, options = {}) {
+  async function requestCollectImage(imageUrl: string, options: RequestCollectImageOptions = {}) {
     const rememberedPayload = state.lastImageUrl === imageUrl ? state.lastCollectionPayload : null;
     const collectionPayload =
       options.collectionPayload ||
@@ -169,27 +192,28 @@ export function createCollector(siteMetadata = null) {
     return response;
   }
 
-  function cleanCollectionMetadata(metadata) {
+  function cleanCollectionMetadata(metadata: unknown): CollectionMetadata | null {
     if (!metadata || typeof metadata !== "object") {
       return null;
     }
 
-    const cleaned = {
-      title: typeof metadata.title === "string" ? metadata.title.trim() : "",
-      description: typeof metadata.description === "string" ? metadata.description.trim() : "",
-      author: typeof metadata.author === "string" ? metadata.author.trim() : "",
-      authorUrl: typeof metadata.authorUrl === "string" ? metadata.authorUrl.trim() : "",
-      provider: typeof metadata.provider === "string" ? metadata.provider.trim() : "",
-      license: typeof metadata.license === "string" ? metadata.license.trim() : "",
-      canonicalUrl: typeof metadata.canonicalUrl === "string" ? metadata.canonicalUrl.trim() : "",
-      publishedAt: typeof metadata.publishedAt === "string" ? metadata.publishedAt.trim() : "",
-      location: typeof metadata.location === "string" ? metadata.location.trim() : "",
-      camera: typeof metadata.camera === "string" ? metadata.camera.trim() : "",
-      width: Number.isFinite(metadata.width) ? metadata.width : 0,
-      height: Number.isFinite(metadata.height) ? metadata.height : 0,
-      tags: Array.isArray(metadata.tags)
-        ? metadata.tags
-            .map((tag) => (typeof tag === "string" ? tag.trim() : ""))
+    const value = metadata as Record<string, unknown>;
+    const cleaned: CollectionMetadata = {
+      title: typeof value.title === "string" ? value.title.trim() : "",
+      description: typeof value.description === "string" ? value.description.trim() : "",
+      author: typeof value.author === "string" ? value.author.trim() : "",
+      authorUrl: typeof value.authorUrl === "string" ? value.authorUrl.trim() : null,
+      provider: typeof value.provider === "string" ? value.provider.trim() : "",
+      license: typeof value.license === "string" ? value.license.trim() : "",
+      canonicalUrl: typeof value.canonicalUrl === "string" ? value.canonicalUrl.trim() : null,
+      publishedAt: typeof value.publishedAt === "string" ? value.publishedAt.trim() : "",
+      location: typeof value.location === "string" ? value.location.trim() : "",
+      camera: typeof value.camera === "string" ? value.camera.trim() : "",
+      width: typeof value.width === "number" && Number.isFinite(value.width) ? value.width : 0,
+      height: typeof value.height === "number" && Number.isFinite(value.height) ? value.height : 0,
+      tags: Array.isArray(value.tags)
+        ? value.tags
+            .map((tag: unknown) => (typeof tag === "string" ? tag.trim() : ""))
             .filter(Boolean)
             .slice(0, 12)
         : [],
@@ -202,7 +226,7 @@ export function createCollector(siteMetadata = null) {
       : null;
   }
 
-  function normalizeImageUrl(url) {
+  function normalizeImageUrl(url: unknown): string | null {
     if (typeof url !== "string") {
       return null;
     }
@@ -219,9 +243,9 @@ export function createCollector(siteMetadata = null) {
     }
   }
 
-  function uniqueUrls(urls) {
-    const seen = new Set();
-    const unique = [];
+  function uniqueUrls(urls: Iterable<unknown>): string[] {
+    const seen = new Set<string>();
+    const unique: string[] = [];
     for (const url of urls) {
       const normalized = normalizeImageUrl(url);
       if (!normalized || seen.has(normalized)) {
@@ -234,7 +258,7 @@ export function createCollector(siteMetadata = null) {
     return unique;
   }
 
-  function extractImageUrlFromDragEvent(event) {
+  function extractImageUrlFromDragEvent(event: DragEvent): string | null {
     const dataTransfer = event.dataTransfer;
     if (!dataTransfer) {
       return null;
@@ -268,11 +292,14 @@ export function createCollector(siteMetadata = null) {
     return null;
   }
 
-  function findRenderedImageElement(target, imageUrl) {
+  function findRenderedImageElement(
+    target: EventTarget | Node | null,
+    imageUrl: string | null,
+  ): HTMLImageElement | null {
     const element = getElementFromTarget(target);
     const normalizedImageUrl = normalizeImageUrl(imageUrl);
 
-    const isUsableImage = (image) =>
+    const isUsableImage = (image: unknown): image is HTMLImageElement =>
       image instanceof HTMLImageElement &&
       image.complete &&
       (image.naturalWidth || image.width) > 0 &&
@@ -306,7 +333,10 @@ export function createCollector(siteMetadata = null) {
     );
   }
 
-  function getRenderedImageDataUrl(target, imageUrl) {
+  function getRenderedImageDataUrl(
+    target: EventTarget | Node | null,
+    imageUrl: string | null,
+  ): string | null {
     const image = findRenderedImageElement(target, imageUrl);
     if (!image) {
       return null;
@@ -335,8 +365,12 @@ export function createCollector(siteMetadata = null) {
     }
   }
 
-  function getElementFromTarget(target) {
-    return target?.nodeType === Node.TEXT_NODE ? target.parentElement : target;
+  function getElementFromTarget(target: EventTarget | Node | null | undefined): Element | null {
+    if (!(target instanceof Node)) {
+      return null;
+    }
+    const element = target.nodeType === Node.TEXT_NODE ? target.parentElement : target;
+    return element instanceof Element ? element : null;
   }
 
   const IMAGE_DATA_ATTRIBUTES = [
@@ -352,14 +386,14 @@ export function createCollector(siteMetadata = null) {
     "url",
   ];
 
-  function parseSrcset(srcset) {
+  function parseSrcset(srcset: string | null | undefined): string | null {
     if (typeof srcset !== "string" || !srcset.trim()) {
       return null;
     }
 
     const candidates = srcset
       .split(",")
-      .map((candidate) => {
+      .map((candidate): DragCandidate => {
         const parts = candidate.trim().split(/\s+/);
         const url = parts[0];
         const descriptor = parts[1] || "";
@@ -377,10 +411,13 @@ export function createCollector(siteMetadata = null) {
     }
 
     candidates.sort((left, right) => right.score - left.score);
-    return normalizeImageUrl(candidates[0].url);
+    return normalizeImageUrl(candidates[0]?.url);
   }
 
-  function getDataImageUrl(element) {
+  function getDataImageUrl(element: Element): string | null {
+    if (!(element instanceof HTMLElement)) {
+      return null;
+    }
     for (const attribute of IMAGE_DATA_ATTRIBUTES) {
       const value = element.dataset?.[attribute];
       const normalized = normalizeImageUrl(value);
@@ -397,7 +434,7 @@ export function createCollector(siteMetadata = null) {
     return null;
   }
 
-  function getPictureSourceUrl(element) {
+  function getPictureSourceUrl(element: Element): string | null {
     const picture = element.closest?.("picture") || element.querySelector?.("picture");
     const sources = picture ? Array.from(picture.querySelectorAll("source[srcset]")) : [];
 
@@ -411,7 +448,7 @@ export function createCollector(siteMetadata = null) {
     return null;
   }
 
-  function getImageUrlFromImage(img) {
+  function getImageUrlFromImage(img: HTMLImageElement): string | null {
     return (
       getDataImageUrl(img) ||
       getPictureSourceUrl(img) ||
@@ -420,17 +457,17 @@ export function createCollector(siteMetadata = null) {
     );
   }
 
-  function getImageCandidateUrlsFromElement(target) {
+  function getImageCandidateUrlsFromElement(target: EventTarget | Node | null): string[] {
     const element = getElementFromTarget(target);
     if (!(element instanceof Element)) {
       return [];
     }
 
-    const urls = [];
+    const urls: Array<string | null> = [];
     const images =
       element instanceof HTMLImageElement
         ? [element]
-        : Array.from(element.querySelectorAll?.("img") || []);
+        : Array.from(element.querySelectorAll<HTMLImageElement>("img"));
     for (const image of images) {
       urls.push(getDataImageUrl(image));
       urls.push(getPictureSourceUrl(image));
@@ -444,7 +481,11 @@ export function createCollector(siteMetadata = null) {
     return uniqueUrls(urls);
   }
 
-  function buildImageCandidateUrls(target, imageUrl, collectionPayload) {
+  function buildImageCandidateUrls(
+    target: EventTarget | Node | null,
+    imageUrl: string,
+    collectionPayload: CollectionPayload | null,
+  ): string[] {
     return uniqueUrls([
       ...(Array.isArray(collectionPayload?.candidateUrls) ? collectionPayload.candidateUrls : []),
       collectionPayload?.imageUrl,
@@ -453,7 +494,7 @@ export function createCollector(siteMetadata = null) {
     ]);
   }
 
-  function getImageUrlFromBackground(element, pseudoElement) {
+  function getImageUrlFromBackground(element: Element, pseudoElement?: string): string | null {
     const style = window.getComputedStyle(element, pseudoElement);
     const bgImage = style.backgroundImage;
     if (!bgImage || bgImage === "none") {
@@ -464,8 +505,8 @@ export function createCollector(siteMetadata = null) {
     return urlMatch ? normalizeImageUrl(urlMatch[1]) : null;
   }
 
-  function getImageUrlFromSingleElement(element) {
-    if (element.tagName === "IMG") {
+  function getImageUrlFromSingleElement(element: Element): string | null {
+    if (element instanceof HTMLImageElement) {
       return getImageUrlFromImage(element);
     }
 
@@ -491,13 +532,13 @@ export function createCollector(siteMetadata = null) {
     return img ? getImageUrlFromImage(img) : null;
   }
 
-  function getImageUrlFromElement(target) {
+  function getImageUrlFromElement(target: EventTarget | Node | null): string | null {
     const element = getElementFromTarget(target);
     if (!(element instanceof Element)) {
       return null;
     }
 
-    let current = element;
+    let current: Element | null = element;
     while (current && current !== document.body) {
       const imageUrl = getImageUrlFromSingleElement(current);
       if (imageUrl) {
@@ -510,7 +551,7 @@ export function createCollector(siteMetadata = null) {
     return null;
   }
 
-  function getImageUrlFromPoint(x, y) {
+  function getImageUrlFromPoint(x: number, y: number): string | null {
     if (typeof document.elementsFromPoint !== "function") {
       return null;
     }
@@ -526,7 +567,10 @@ export function createCollector(siteMetadata = null) {
     return null;
   }
 
-  function resolveSourceUrlFromElement(target, imageUrl) {
+  function resolveSourceUrlFromElement(
+    target: EventTarget | Node | null,
+    imageUrl: string,
+  ): string | null {
     const element = getElementFromTarget(target);
     if (!(element instanceof Element)) {
       return null;
@@ -546,7 +590,11 @@ export function createCollector(siteMetadata = null) {
     return null;
   }
 
-  function resolveCollectionPayload(target, imageUrl, options = {}) {
+  function resolveCollectionPayload(
+    target: EventTarget | Node | null,
+    imageUrl: string | null | undefined,
+    options: { sourceUrl?: string | null; pageUrl?: string | null } = {},
+  ): CollectionPayload | null {
     const normalizedImageUrl = normalizeImageUrl(imageUrl);
     if (!normalizedImageUrl) {
       return null;
@@ -576,13 +624,17 @@ export function createCollector(siteMetadata = null) {
     return payload;
   }
 
-  function registerSourceUrlResolver(resolver) {
+  function registerSourceUrlResolver(resolver: SourceUrlResolver): void {
     if (typeof resolver === "function") {
       sourceUrlResolvers.push(resolver);
     }
   }
 
-  function setLastImageContext(target, imageUrl, sourceUrl) {
+  function setLastImageContext(
+    target: EventTarget | Node | null,
+    imageUrl: string | null | undefined,
+    sourceUrl?: string | null,
+  ): CollectionPayload | null {
     const payload = resolveCollectionPayload(target, imageUrl, {
       sourceUrl,
       pageUrl: window.location.href,

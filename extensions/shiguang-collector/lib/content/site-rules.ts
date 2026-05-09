@@ -9,16 +9,33 @@ import {
   normalizeText,
   normalizeUrl,
 } from "./site-metadata-utils";
+import type { CollectionContext, CollectionMetadata, ResolvedCollectionPayload } from "../types";
 
-function urlIncludes(value, pattern) {
+interface ImageEnhancerRule {
+  test: (url: string) => boolean;
+  enhance: (url: string) => string;
+}
+
+interface ProviderResolver {
+  match: (context: CollectionContext) => boolean;
+  resolve: (
+    context: CollectionContext,
+    genericMetadata: CollectionMetadata,
+  ) => ResolvedCollectionPayload;
+}
+
+function urlIncludes(value: string | null | undefined, pattern: string): boolean {
   return new RegExp(pattern, "i").test(value || "");
 }
 
-function joinedContext(context) {
+function joinedContext(context: CollectionContext): string {
   return [context.pageUrl, context.sourceUrl, context.imageUrl].filter(Boolean).join(" ");
 }
 
-function getSourceUrl(context, predicate) {
+function getSourceUrl(
+  context: CollectionContext,
+  predicate: (url: string) => boolean,
+): string | null {
   return (
     context.sourceUrl ||
     findClosestAnchorUrl(context.target, predicate, context.pageUrl) ||
@@ -26,13 +43,17 @@ function getSourceUrl(context, predicate) {
   );
 }
 
-function getClosestText(target, containerSelector, selectors) {
+function getClosestText(
+  target: EventTarget | Node | null,
+  containerSelector: string,
+  selectors: string[],
+): string {
   const element = getElement(target);
   const container = element instanceof Element ? element.closest(containerSelector) : null;
   return container ? firstText(selectors, container) : "";
 }
 
-function dropSearchParams(url, params) {
+function dropSearchParams(url: string, params: string[]): string {
   const parsed = new URL(url);
   for (const param of params) {
     parsed.searchParams.delete(param);
@@ -40,14 +61,14 @@ function dropSearchParams(url, params) {
   return parsed.href;
 }
 
-function stripUrlSearch(url) {
+function stripUrlSearch(url: string): string {
   const parsed = new URL(url);
   parsed.search = "";
   parsed.hash = "";
   return parsed.href;
 }
 
-export function parseUnsplashPhotoId(value) {
+export function parseUnsplashPhotoId(value: unknown): string {
   const href = normalizeUrl(value);
   if (!href) {
     return "";
@@ -68,7 +89,7 @@ export function parseUnsplashPhotoId(value) {
   }
 }
 
-export function parsePexelsPhotoId(value) {
+export function parsePexelsPhotoId(value: unknown): string {
   const href = normalizeUrl(value);
   if (!href) {
     return "";
@@ -88,7 +109,7 @@ export function parsePexelsPhotoId(value) {
   }
 }
 
-export function parsePixabayPhotoId(value) {
+export function parsePixabayPhotoId(value: unknown): string {
   const href = normalizeUrl(value);
   if (!href) {
     return "";
@@ -103,7 +124,7 @@ export function parsePixabayPhotoId(value) {
   }
 }
 
-export function parseFlickrPhotoId(value) {
+export function parseFlickrPhotoId(value: unknown): string {
   const href = normalizeUrl(value);
   if (!href) {
     return "";
@@ -118,75 +139,75 @@ export function parseFlickrPhotoId(value) {
   }
 }
 
-function isUnsplashDetailUrl(url) {
+function isUnsplashDetailUrl(url: string): boolean {
   return urlIncludes(url, String.raw`https?:\/\/(?:www\.)?unsplash\.com\/photos\/`);
 }
 
-function isPexelsDetailUrl(url) {
+function isPexelsDetailUrl(url: string): boolean {
   return urlIncludes(url, String.raw`https?:\/\/(?:www\.)?pexels\.com\/photo\/`);
 }
 
-function isPixabayDetailUrl(url) {
+function isPixabayDetailUrl(url: string): boolean {
   return urlIncludes(url, String.raw`https?:\/\/(?:www\.)?pixabay\.com\/[^?#]*-\d+\/?$`);
 }
 
-function isFlickrDetailUrl(url) {
+function isFlickrDetailUrl(url: string): boolean {
   return urlIncludes(url, String.raw`https?:\/\/(?:www\.)?flickr\.com\/photos\/`);
 }
 
-function isCommonsFileUrl(url) {
+function isCommonsFileUrl(url: string): boolean {
   return urlIncludes(url, String.raw`https?:\/\/commons\.wikimedia\.org\/wiki\/File:`);
 }
 
-function isPinterestPinUrl(url) {
+function isPinterestPinUrl(url: string): boolean {
   return urlIncludes(url, String.raw`https?:\/\/(?:[^/]+\.)?pinterest\.[^/]+\/pin\/`);
 }
 
-function isBehanceProjectUrl(url) {
+function isBehanceProjectUrl(url: string): boolean {
   return urlIncludes(url, String.raw`https?:\/\/(?:[^/]+\.)?behance\.net\/gallery\/`);
 }
 
-function isDribbbleShotUrl(url) {
+function isDribbbleShotUrl(url: string): boolean {
   return urlIncludes(url, String.raw`https?:\/\/dribbble\.com\/shots\/`);
 }
 
-function isArtStationArtworkUrl(url) {
+function isArtStationArtworkUrl(url: string): boolean {
   return urlIncludes(url, String.raw`https?:\/\/(?:www\.)?artstation\.com\/artwork\/`);
 }
 
-function isPixivArtworkUrl(url) {
+function isPixivArtworkUrl(url: string): boolean {
   return urlIncludes(url, String.raw`https?:\/\/(?:www\.)?pixiv\.net\/(?:[^/]+\/)?artworks\/\d+`);
 }
 
-function isXiaohongshuNoteUrl(url) {
+function isXiaohongshuNoteUrl(url: string): boolean {
   return urlIncludes(
     url,
     String.raw`https?:\/\/(?:www\.)?xiaohongshu\.com\/(?:explore|discovery\/item|search_result)\/?`,
   );
 }
 
-function enhanceUnsplashUrl(imageUrl) {
+function enhanceUnsplashUrl(imageUrl: string): string {
   return dropSearchParams(imageUrl, ["w", "h", "width", "height", "crop", "fit", "rect", "dpr"]);
 }
 
-function enhancePexelsUrl(imageUrl) {
+function enhancePexelsUrl(imageUrl: string): string {
   const parsed = new URL(imageUrl);
   parsed.search = "";
   parsed.searchParams.set("auto", "compress");
   return parsed.href;
 }
 
-function enhancePixabayUrl(imageUrl) {
+function enhancePixabayUrl(imageUrl: string): string {
   return imageUrl
     .replace(/_640(?=\.[a-z]+(?:\?|#|$))/i, "_1280")
     .replace(/_960_720(?=\.[a-z]+(?:\?|#|$))/i, "_1280");
 }
 
-function enhanceFlickrUrl(imageUrl) {
+function enhanceFlickrUrl(imageUrl: string): string {
   return stripUrlSearch(imageUrl).replace(/_[nmstwzc](?=\.[a-z]+$)/i, "_b");
 }
 
-function enhanceWikimediaUrl(imageUrl) {
+function enhanceWikimediaUrl(imageUrl: string): string {
   const parsed = new URL(imageUrl);
   const thumbIndex = parsed.pathname.indexOf("/thumb/");
   if (thumbIndex === -1) {
@@ -200,7 +221,7 @@ function enhanceWikimediaUrl(imageUrl) {
   return parsed.href;
 }
 
-function enhancePinterestUrl(imageUrl) {
+function enhancePinterestUrl(imageUrl: string): string {
   const parsed = new URL(imageUrl);
   parsed.pathname = parsed.pathname
     .replace(/\/(?:75x75(?:_RS)?|170x|236x|474x|564x|736x|1200x|originals?)\//i, "/originals/")
@@ -212,7 +233,7 @@ function enhancePinterestUrl(imageUrl) {
   return parsed.href;
 }
 
-function enhanceBehanceUrl(imageUrl) {
+function enhanceBehanceUrl(imageUrl: string): string {
   const parsed = new URL(imageUrl);
   parsed.pathname = parsed.pathname.replace(
     /\/project_modules\/(?:disp|fs|max_\d+|hd|source|1400_opt_1)\//i,
@@ -222,7 +243,7 @@ function enhanceBehanceUrl(imageUrl) {
   return parsed.href;
 }
 
-function enhanceDribbbleUrl(imageUrl) {
+function enhanceDribbbleUrl(imageUrl: string): string {
   return stripUrlSearch(imageUrl)
     .replace(/_teaser(?=\.[a-z]+$)/i, "")
     .replace(/_1x(?=\.[a-z]+$)/i, "")
@@ -230,7 +251,7 @@ function enhanceDribbbleUrl(imageUrl) {
     .replace(/_4x(?=\.[a-z]+$)/i, "");
 }
 
-function enhanceArtStationUrl(imageUrl) {
+function enhanceArtStationUrl(imageUrl: string): string {
   const parsed = new URL(imageUrl);
   parsed.pathname = parsed.pathname.replace(
     /\/(?:micro_square|smaller_square|small_square|medium|large)\//i,
@@ -240,7 +261,7 @@ function enhanceArtStationUrl(imageUrl) {
   return parsed.href;
 }
 
-function enhancePixivUrl(imageUrl) {
+function enhancePixivUrl(imageUrl: string): string {
   const parsed = new URL(imageUrl);
   parsed.pathname = parsed.pathname
     .replace(/\/c\/\d+x\d+(?:_\d+)?(?:_[A-Za-z0-9]{2})?\//, "/")
@@ -251,7 +272,7 @@ function enhancePixivUrl(imageUrl) {
   return parsed.href;
 }
 
-function enhanceXiaohongshuUrl(imageUrl) {
+function enhanceXiaohongshuUrl(imageUrl: string): string {
   return imageUrl
     .replace(
       /:\/\/[^/]+(\.xhscdn\.com\/+)[0-9]+\/+[0-9a-f]{10,}\/+([^?#!]+)(?:[?#!].*)?$/i,
@@ -260,7 +281,7 @@ function enhanceXiaohongshuUrl(imageUrl) {
     .split("!")[0];
 }
 
-function maybeEnhanceImageUrl(imageUrl, rules) {
+function maybeEnhanceImageUrl(imageUrl: string, rules: ImageEnhancerRule[]): string {
   if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) {
     return imageUrl;
   }
@@ -278,11 +299,11 @@ function maybeEnhanceImageUrl(imageUrl, rules) {
   return imageUrl;
 }
 
-function safeEnhanceImageUrl(imageUrl, enhance) {
+function safeEnhanceImageUrl(imageUrl: string, enhance: (url: string) => string): string {
   return maybeEnhanceImageUrl(imageUrl, [{ test: () => true, enhance }]);
 }
 
-const imageEnhancers = [
+const imageEnhancers: ImageEnhancerRule[] = [
   { test: (url) => /images\.unsplash\.com/i.test(url), enhance: enhanceUnsplashUrl },
   { test: (url) => /images\.pexels\.com/i.test(url), enhance: enhancePexelsUrl },
   { test: (url) => /cdn\.pixabay\.com/i.test(url), enhance: enhancePixabayUrl },
@@ -299,7 +320,10 @@ const imageEnhancers = [
   { test: (url) => /xhscdn\.com/i.test(url), enhance: enhanceXiaohongshuUrl },
 ];
 
-function resolveUnsplash(context, genericMetadata) {
+function resolveUnsplash(
+  context: CollectionContext,
+  genericMetadata: CollectionMetadata,
+): ResolvedCollectionPayload {
   const sourceUrl = getSourceUrl(context, isUnsplashDetailUrl);
 
   return {
@@ -319,7 +343,10 @@ function resolveUnsplash(context, genericMetadata) {
   };
 }
 
-function resolvePexels(context, genericMetadata) {
+function resolvePexels(
+  context: CollectionContext,
+  genericMetadata: CollectionMetadata,
+): ResolvedCollectionPayload {
   const sourceUrl = getSourceUrl(context, isPexelsDetailUrl);
 
   return {
@@ -336,9 +363,12 @@ function resolvePexels(context, genericMetadata) {
   };
 }
 
-function resolvePixabay(context, genericMetadata) {
+function resolvePixabay(
+  context: CollectionContext,
+  genericMetadata: CollectionMetadata,
+): ResolvedCollectionPayload {
   const sourceUrl = getSourceUrl(context, isPixabayDetailUrl);
-  const tags = [];
+  const tags: string[] = [];
   const title = cleanTitle(getMetaContent("meta[property='og:title']") || document.title);
   const titleId = parsePixabayPhotoId(title);
 
@@ -365,7 +395,10 @@ function resolvePixabay(context, genericMetadata) {
   };
 }
 
-function resolveFlickr(context, genericMetadata) {
+function resolveFlickr(
+  context: CollectionContext,
+  genericMetadata: CollectionMetadata,
+): ResolvedCollectionPayload {
   const sourceUrl = getSourceUrl(context, isFlickrDetailUrl);
 
   return {
@@ -382,7 +415,10 @@ function resolveFlickr(context, genericMetadata) {
   };
 }
 
-function resolveWikimediaCommons(context, genericMetadata) {
+function resolveWikimediaCommons(
+  context: CollectionContext,
+  genericMetadata: CollectionMetadata,
+): ResolvedCollectionPayload {
   const sourceUrl = getSourceUrl(context, isCommonsFileUrl);
   const license =
     normalizeText(
@@ -405,7 +441,10 @@ function resolveWikimediaCommons(context, genericMetadata) {
   };
 }
 
-function resolvePinterest(context, genericMetadata) {
+function resolvePinterest(
+  context: CollectionContext,
+  genericMetadata: CollectionMetadata,
+): ResolvedCollectionPayload {
   const sourceUrl = getSourceUrl(context, isPinterestPinUrl);
   const title =
     getClosestText(context.target, "[data-grid-item], [data-test-id*='pin'], article", [
@@ -427,7 +466,10 @@ function resolvePinterest(context, genericMetadata) {
   };
 }
 
-function resolveBehance(context, genericMetadata) {
+function resolveBehance(
+  context: CollectionContext,
+  genericMetadata: CollectionMetadata,
+): ResolvedCollectionPayload {
   const sourceUrl = getSourceUrl(context, isBehanceProjectUrl);
   const title =
     firstText([
@@ -451,7 +493,10 @@ function resolveBehance(context, genericMetadata) {
   };
 }
 
-function resolveDribbble(context, genericMetadata) {
+function resolveDribbble(
+  context: CollectionContext,
+  genericMetadata: CollectionMetadata,
+): ResolvedCollectionPayload {
   const sourceUrl = getSourceUrl(context, isDribbbleShotUrl);
   const title =
     getClosestText(context.target, "[data-thumbnail-id], article, main", [
@@ -473,7 +518,10 @@ function resolveDribbble(context, genericMetadata) {
   };
 }
 
-function resolveArtStation(context, genericMetadata) {
+function resolveArtStation(
+  context: CollectionContext,
+  genericMetadata: CollectionMetadata,
+): ResolvedCollectionPayload {
   const sourceUrl = getSourceUrl(context, isArtStationArtworkUrl);
 
   return {
@@ -494,7 +542,10 @@ function resolveArtStation(context, genericMetadata) {
   };
 }
 
-function resolvePixiv(context, genericMetadata) {
+function resolvePixiv(
+  context: CollectionContext,
+  genericMetadata: CollectionMetadata,
+): ResolvedCollectionPayload {
   const sourceUrl = getSourceUrl(context, isPixivArtworkUrl);
   const title = cleanTitle(firstText(["h1", "figcaption", "main h2"]) || document.title);
 
@@ -514,7 +565,10 @@ function resolvePixiv(context, genericMetadata) {
   };
 }
 
-function resolveXiaohongshu(context, genericMetadata) {
+function resolveXiaohongshu(
+  context: CollectionContext,
+  genericMetadata: CollectionMetadata,
+): ResolvedCollectionPayload {
   const sourceUrl = getSourceUrl(context, isXiaohongshuNoteUrl);
   const title =
     getClosestText(context.target, "section.note-item, article, [class*='note-container']", [
@@ -541,7 +595,7 @@ function resolveXiaohongshu(context, genericMetadata) {
   };
 }
 
-const providerResolvers = [
+const providerResolvers: ProviderResolver[] = [
   {
     match: (context) => /unsplash\.com|images\.unsplash\.com/i.test(joinedContext(context)),
     resolve: resolveUnsplash,
@@ -590,7 +644,10 @@ const providerResolvers = [
   },
 ];
 
-export function resolveProvider(context, genericMetadata) {
+export function resolveProvider(
+  context: CollectionContext,
+  genericMetadata: CollectionMetadata,
+): ResolvedCollectionPayload {
   for (const resolver of providerResolvers) {
     if (resolver.match(context)) {
       return resolver.resolve(context, genericMetadata);

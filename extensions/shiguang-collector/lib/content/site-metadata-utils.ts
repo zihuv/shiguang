@@ -1,4 +1,20 @@
-export function normalizeUrl(url, baseUrl) {
+import type { CollectionContext, CollectionMetadata, PartialCollectionMetadata } from "../types";
+
+type JsonObject = Record<string, unknown>;
+
+function asObject(value: unknown): JsonObject | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonObject) : null;
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function numberValue(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+export function normalizeUrl(url: unknown, baseUrl?: string | null): string | null {
   if (typeof url !== "string") {
     return null;
   }
@@ -15,20 +31,20 @@ export function normalizeUrl(url, baseUrl) {
   }
 }
 
-export function sameUrl(left, right) {
+export function sameUrl(left: unknown, right: unknown): boolean {
   return Boolean(left && right && normalizeUrl(left) === normalizeUrl(right));
 }
 
-export function normalizeText(value) {
+export function normalizeText(value: unknown): string {
   if (typeof value !== "string") {
     return "";
   }
   return value.replace(/\s+/g, " ").trim();
 }
 
-export function uniqueStrings(values, limit = 12) {
-  const normalized = [];
-  const seen = new Set();
+export function uniqueStrings(values: Iterable<unknown> | null | undefined, limit = 12): string[] {
+  const normalized: string[] = [];
+  const seen = new Set<string>();
 
   for (const value of values || []) {
     const text = normalizeText(value);
@@ -51,7 +67,10 @@ export function uniqueStrings(values, limit = 12) {
   return normalized;
 }
 
-export function mergeMetadata(base = {}, extra = {}) {
+export function mergeMetadata(
+  base: PartialCollectionMetadata = {},
+  extra: PartialCollectionMetadata = {},
+): CollectionMetadata {
   return {
     title: normalizeText(extra.title || base.title),
     description: normalizeText(extra.description || base.description),
@@ -63,18 +82,18 @@ export function mergeMetadata(base = {}, extra = {}) {
     publishedAt: normalizeText(extra.publishedAt || base.publishedAt),
     location: normalizeText(extra.location || base.location),
     camera: normalizeText(extra.camera || base.camera),
-    width: Number.isFinite(extra.width) ? extra.width : base.width,
-    height: Number.isFinite(extra.height) ? extra.height : base.height,
+    width: numberValue(extra.width) || numberValue(base.width),
+    height: numberValue(extra.height) || numberValue(base.height),
     tags: uniqueStrings([...(base.tags || []), ...(extra.tags || [])]),
   };
 }
 
-export function getMetaContent(selector) {
+export function getMetaContent(selector: string): string {
   const value = document.querySelector(selector)?.getAttribute("content");
   return normalizeText(value);
 }
 
-export function cleanTitle(value) {
+export function cleanTitle(value: unknown): string {
   return normalizeText(
     String(value || "")
       .replace(/\s*\|\s*Unsplash.*$/i, "")
@@ -89,17 +108,23 @@ export function cleanTitle(value) {
   );
 }
 
-export function getCanonicalUrl() {
+export function getCanonicalUrl(): string | null {
   return normalizeUrl(
     document.querySelector("link[rel='canonical']")?.getAttribute("href") || window.location.href,
   );
 }
 
-export function getElement(target) {
-  return target?.nodeType === Node.TEXT_NODE ? target.parentElement : target;
+export function getElement(target: EventTarget | Node | null | undefined): Element | null {
+  if (!(target instanceof Node)) {
+    return null;
+  }
+  const element = target.nodeType === Node.TEXT_NODE ? target.parentElement : target;
+  return element instanceof Element ? element : null;
 }
 
-export function getImageElement(target) {
+export function getImageElement(
+  target: EventTarget | Node | null | undefined,
+): HTMLImageElement | null {
   const element = getElement(target);
   if (element instanceof HTMLImageElement) {
     return element;
@@ -110,18 +135,22 @@ export function getImageElement(target) {
   return null;
 }
 
-export function findClosestAnchorUrl(target, predicate, baseUrl) {
+export function findClosestAnchorUrl(
+  target: EventTarget | Node | null | undefined,
+  predicate: (href: string) => boolean,
+  baseUrl?: string | null,
+): string | null {
   const element = getElement(target);
   if (!(element instanceof Element)) {
     return null;
   }
 
-  const anchors = [];
+  const anchors: HTMLAnchorElement[] = [];
   const closest = element.closest("a[href]");
-  if (closest) {
+  if (closest instanceof HTMLAnchorElement) {
     anchors.push(closest);
   }
-  anchors.push(...element.querySelectorAll("a[href]"));
+  anchors.push(...Array.from(element.querySelectorAll<HTMLAnchorElement>("a[href]")));
 
   for (const anchor of anchors) {
     const href = normalizeUrl(anchor.getAttribute("href") || anchor.href, baseUrl);
@@ -133,7 +162,7 @@ export function findClosestAnchorUrl(target, predicate, baseUrl) {
   return null;
 }
 
-export function firstText(selectors, root = document) {
+export function firstText(selectors: string[], root: ParentNode = document): string {
   for (const selector of selectors) {
     const text = normalizeText(root.querySelector(selector)?.textContent || "");
     if (text) {
@@ -143,17 +172,20 @@ export function firstText(selectors, root = document) {
   return "";
 }
 
-function collectJsonLdItems() {
-  const items = [];
+function collectJsonLdItems(): JsonObject[] {
+  const items: JsonObject[] = [];
   for (const script of document.querySelectorAll("script[type='application/ld+json']")) {
     try {
       const parsed = JSON.parse(script.textContent || "null");
       if (Array.isArray(parsed)) {
-        items.push(...parsed);
+        items.push(...parsed.filter((item): item is JsonObject => Boolean(asObject(item))));
       } else if (parsed && typeof parsed === "object") {
-        items.push(parsed);
-        if (Array.isArray(parsed["@graph"])) {
-          items.push(...parsed["@graph"]);
+        const parsedObject = parsed as JsonObject;
+        items.push(parsedObject);
+        if (Array.isArray(parsedObject["@graph"])) {
+          items.push(
+            ...parsedObject["@graph"].filter((item): item is JsonObject => Boolean(asObject(item))),
+          );
         }
       }
     } catch {
@@ -163,11 +195,14 @@ function collectJsonLdItems() {
   return items;
 }
 
-function scoreJsonLdItem(item, context) {
-  const urls = [item?.contentUrl, item?.url, item?.thumbnailUrl, item?.image?.url, item?.image]
+function scoreJsonLdItem(item: JsonObject, context: CollectionContext): number {
+  const image = asObject(item.image);
+  const urls = [item.contentUrl, item.url, item.thumbnailUrl, image?.url, item.image]
     .flat()
-    .map((value) => normalizeUrl(typeof value === "string" ? value : value?.url, context.pageUrl))
-    .filter(Boolean);
+    .map((value) =>
+      normalizeUrl(typeof value === "string" ? value : asObject(value)?.url, context.pageUrl),
+    )
+    .filter((url): url is string => Boolean(url));
 
   let score = 0;
   for (const url of urls) {
@@ -182,7 +217,7 @@ function scoreJsonLdItem(item, context) {
     }
   }
 
-  const typeText = String(item?.["@type"] || item?.type || "");
+  const typeText = String(item["@type"] || item.type || "");
   if (/imageobject|photograph|creativework/i.test(typeText)) {
     score += 3;
   }
@@ -190,7 +225,9 @@ function scoreJsonLdItem(item, context) {
   return score;
 }
 
-function getJsonLdMetadata(context) {
+function getJsonLdMetadata(context: CollectionContext): PartialCollectionMetadata & {
+  imageUrl?: string | null;
+} {
   const scored = collectJsonLdItems()
     .map((item) => ({ item, score: scoreJsonLdItem(item, context) }))
     .filter((entry) => entry.score > 0)
@@ -206,8 +243,8 @@ function getJsonLdMetadata(context) {
     typeof author === "string"
       ? author
       : Array.isArray(author)
-        ? author.map((item) => item?.name || item?.alternateName).find(Boolean)
-        : author?.name || author?.alternateName;
+        ? author.map((item) => asObject(item)?.name || asObject(item)?.alternateName).find(Boolean)
+        : asObject(author)?.name || asObject(author)?.alternateName;
 
   const keywords = typeof best.keywords === "string" ? best.keywords.split(",") : best.keywords;
   const imageUrl = normalizeUrl(
@@ -215,22 +252,22 @@ function getJsonLdMetadata(context) {
       ? best.contentUrl
       : typeof best.url === "string"
         ? best.url
-        : undefined,
+        : null,
     context.pageUrl,
   );
 
   return {
     imageUrl,
-    title: best.headline || best.name || best.caption,
-    description: best.description || best.caption,
-    author: authorName,
-    authorUrl: typeof author === "object" ? author?.url : "",
-    publishedAt: best.datePublished || best.dateCreated,
+    title: stringValue(best.headline) || stringValue(best.name) || stringValue(best.caption),
+    description: stringValue(best.description) || stringValue(best.caption),
+    author: stringValue(authorName),
+    authorUrl: stringValue(asObject(author)?.url),
+    publishedAt: stringValue(best.datePublished) || stringValue(best.dateCreated),
     tags: Array.isArray(keywords) ? keywords : [],
   };
 }
 
-export function getGenericMetadata(context) {
+export function getGenericMetadata(context: CollectionContext): CollectionMetadata {
   const imageElement = getImageElement(context.target);
   const jsonLd = getJsonLdMetadata(context);
   const keywords = getMetaContent("meta[name='keywords']");
@@ -242,7 +279,6 @@ export function getGenericMetadata(context) {
       height: imageElement?.naturalHeight || 0,
     },
     {
-      imageUrl: jsonLd.imageUrl,
       title: jsonLd.title,
       description: jsonLd.description,
       author: jsonLd.author || getMetaContent("meta[name='author']"),
