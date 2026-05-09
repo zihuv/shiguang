@@ -1,4 +1,4 @@
-import { app } from "electron";
+import { app, nativeImage } from "electron";
 import fs from "node:fs/promises";
 import fssync from "node:fs";
 import path from "node:path";
@@ -250,6 +250,10 @@ function canBuildThumbnail(ext: string): boolean {
   return getThumbnailGenerationRuntimeForExt(normalizeThumbnailExt(ext)) === "main";
 }
 
+function isHeifThumbnailExt(ext: string): boolean {
+  return ext === "heic" || ext === "heif";
+}
+
 async function ensurePdfJsModule(): Promise<void> {
   if (!pdfJsModuleReady) {
     pdfJsModuleReady = definePDFJSModule(() => import("pdfjs-dist/legacy/build/pdf.mjs"));
@@ -257,7 +261,28 @@ async function ensurePdfJsModule(): Promise<void> {
   await pdfJsModuleReady;
 }
 
-async function buildImageThumbnailBuffer(filePath: string, maxEdge: number): Promise<Buffer> {
+async function buildImageThumbnailBuffer(
+  filePath: string,
+  maxEdge: number,
+  ext?: string,
+): Promise<Buffer> {
+  if (ext && isHeifThumbnailExt(ext)) {
+    const thumbnail = await nativeImage.createThumbnailFromPath(filePath, {
+      width: maxEdge,
+      height: maxEdge,
+    });
+    if (thumbnail.isEmpty()) {
+      throw new Error("Unable to create HEIC thumbnail");
+    }
+    return sharp(thumbnail.toPNG())
+      .resize(maxEdge, maxEdge, {
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .webp({ quality: THUMBNAIL_WEBP_QUALITY })
+      .toBuffer();
+  }
+
   return sharp(filePath, { animated: false })
     .rotate()
     .resize(maxEdge, maxEdge, {
@@ -318,7 +343,7 @@ async function buildThumbnailBuffer(
   if (normalizedExt === "psd") {
     return buildPsdThumbnailBuffer(filePath, maxEdge);
   }
-  return buildImageThumbnailBuffer(filePath, maxEdge);
+  return buildImageThumbnailBuffer(filePath, maxEdge, normalizedExt);
 }
 
 export function getThumbnailCachePath(
