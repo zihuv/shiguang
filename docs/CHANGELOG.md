@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [0.5.7] - 2026-05-09
+
 ### Added
 
 - 浏览器采集扩展增强小红书、Pinterest、Behance、Dribbble、ArtStation、pixiv 及常见图片素材站的来源链接、标题和大图识别。
