@@ -245,7 +245,7 @@ export default function SidePanel({ onCollapse, onOpenSettings, width }: SidePan
       <div
         className={cn(
           "app-sidebar-chrome app-drag-region flex flex-shrink-0 px-2",
-          isMacPlatform ? "app-sidebar-chrome-mac items-end pb-2" : "items-center",
+          isMacPlatform ? "app-sidebar-chrome-mac items-end pb-1" : "items-center",
         )}
       >
         <div className="app-no-drag flex w-full min-w-0 items-center gap-0.5">
@@ -253,7 +253,7 @@ export default function SidePanel({ onCollapse, onOpenSettings, width }: SidePan
             <button
               type="button"
               className={cn(
-                "flex h-8 max-w-full items-center gap-1.5 rounded-lg px-2 text-[13px] font-semibold text-gray-800 transition-colors hover:bg-black/[0.045] dark:text-gray-100 dark:hover:bg-white/[0.06]",
+                "flex h-7 max-w-full items-center gap-1.5 rounded-lg px-2 text-[13px] font-semibold text-gray-800 transition-colors hover:bg-black/[0.045] dark:text-gray-100 dark:hover:bg-white/[0.06]",
                 isLibraryMenuOpen && "bg-black/[0.045] dark:bg-white/[0.06]",
               )}
               onClick={() => setIsLibraryMenuOpen((value) => !value)}
@@ -375,7 +375,7 @@ export default function SidePanel({ onCollapse, onOpenSettings, width }: SidePan
         </div>
       </div>
       <div className="app-sidebar-scroll min-h-0 flex-1 overflow-x-hidden">
-        <div className="px-2 pb-1 pt-2.5">
+        <div className="px-2 pb-1 pt-1">
           <div className="mb-2 flex items-center justify-between gap-2">
             <span className={cn(appSectionLabelClass, "mb-0")}>快捷视图</span>
           </div>
@@ -436,7 +436,7 @@ export default function SidePanel({ onCollapse, onOpenSettings, width }: SidePan
           </div>
         </div>
 
-        <div className="pt-1">
+        <div className="pt-3">
           <FolderTree showAllFilesRow={false} showHeader />
         </div>
       </div>

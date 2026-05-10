@@ -459,8 +459,8 @@ export default function FolderTree({ showHeader = true, showAllFilesRow = true }
   return (
     <div className="flex flex-col">
       {showHeader && (
-        <div className="flex items-center justify-between px-2.5 pb-1 pt-2">
-          <h2 className={cn(appSectionLabelClass, "mb-0")}>文件夹</h2>
+        <div className="flex items-center justify-between px-2.5 pb-0.5 pt-1.5">
+          <h2 className={cn(appSectionLabelClass, "mb-0")}>素材目录</h2>
           <div className="flex items-center gap-1">
             <Button
               variant="ghost"

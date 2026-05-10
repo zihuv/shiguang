@@ -30,6 +30,9 @@ import { useNavigationStore } from "@/stores/navigationStore";
 const ImagePreview = lazy(() => import("@/components/ImagePreview"));
 const SettingsModal = lazy(() => import("@/components/SettingsModal"));
 
+const isMacPlatform =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
+
 function App() {
   const hasBootstrapped = useBootstrapStore((state) => state.hasBootstrapped);
   const bootstrapError = useBootstrapStore((state) => state.bootstrapError);
@@ -182,7 +185,11 @@ function App() {
           />
         ) : null}
 
-        <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+        <main
+          className={`relative flex min-w-0 flex-1 flex-col overflow-hidden ${
+            isSidebarCollapsed && isMacPlatform ? "app-main-sidebar-collapsed-mac" : ""
+          }`}
+        >
           {currentView === "library" ? <FileGrid /> : null}
           {currentView === "tags" ? <TagPanel /> : null}
           {currentView === "trash" ? <TrashPanel /> : null}

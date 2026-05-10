@@ -16,7 +16,7 @@
   --app-border: rgba(15, 23, 42, 0.035);
   --app-border-strong: rgba(15, 23, 42, 0.055);
   --app-header-height: 0px;
-  --app-column-chrome-height: 48px;
+  --app-column-chrome-height: 44px;
   --app-panel-header-height: 44px;
   --app-shadow: 0 14px 32px rgba(15, 23, 42, 0.045);
 }
@@ -92,7 +92,12 @@ select {
 }
 
 .app-sidebar-chrome-mac {
-  min-height: 72px;
+  min-height: 74px;
+}
+
+.app-main-sidebar-collapsed-mac .app-main-chrome {
+  -webkit-app-region: no-drag;
+  padding-left: 10rem;
 }
 
 .app-panel {

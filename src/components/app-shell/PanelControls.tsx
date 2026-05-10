@@ -1,5 +1,8 @@
 import { PanelLeftOpen } from "lucide-react";
 
+const isMacPlatform =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
+
 export function PanelResizeHandle({
   ariaLabel,
   isActive,
@@ -40,6 +43,22 @@ export function PanelRestoreToggle({
   title: string;
   onClick: () => void;
 }) {
+  if (isMacPlatform) {
+    return (
+      <div className="app-no-drag absolute left-[7.75rem] top-2 z-30 flex size-7 items-center justify-center">
+        <button
+          type="button"
+          aria-label={ariaLabel}
+          title={title}
+          className="inline-flex size-7 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-black/[0.045] hover:text-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-gray-500 dark:hover:bg-white/[0.06] dark:hover:text-gray-200"
+          onClick={onClick}
+        >
+          <PanelLeftOpen className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full w-10 flex-shrink-0 justify-center pt-1.5">
       <button
