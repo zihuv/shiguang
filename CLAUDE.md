@@ -26,7 +26,9 @@ After `npm install`, run `npx electron-builder install-app-deps` if native Elect
 
 - Keep dev services on `127.0.0.1`; never switch them back to `localhost`.
 - Reuse existing repo-owned dev processes when possible; stop stale repo-scoped Electron/Vite processes before relaunching.
-- Chrome MCP is valid only when connected to Electron via `--browserUrl http://127.0.0.1:9223`; `about:blank` or a normal Chrome tab means it is misconfigured.
+- Configure Chrome DevTools MCP with the official `--browser-url=http://127.0.0.1:9223` option so it attaches to Electron instead of launching its default standalone Chrome profile.
+- Before any browser MCP command for desktop UI verification, make sure the Electron dev app is already running. Prefer an existing repo-owned `npm run dev` process; if none exists, start `npm run dev` and wait until `http://127.0.0.1:9223/json/list` exposes a page whose URL starts with `http://127.0.0.1:1420/`.
+- Browser MCP is valid only when connected to that Electron CDP target on `127.0.0.1:9223`; `about:blank`, a normal Chrome tab, or a standalone `127.0.0.1:1420` page means it is misconfigured.
 - Do not use standalone Chrome at `127.0.0.1:1420` for desktop verification; that path lacks Electron preload, IPC, native windows, menus, dialogs, and drag-and-drop.
 - If proxy env vars are present, bypass them for local CDP with `NO_PROXY=127.0.0.1,localhost` or equivalent.
 
