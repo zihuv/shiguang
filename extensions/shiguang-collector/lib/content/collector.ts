@@ -287,6 +287,10 @@ export function createCollector(siteMetadata: SiteMetadataService | null = null)
       return null;
     }
 
+    if (shouldSkipRenderedPixelReuse(image)) {
+      return null;
+    }
+
     try {
       const canvas = document.createElement("canvas");
       canvas.width = width;
@@ -299,9 +303,28 @@ export function createCollector(siteMetadata: SiteMetadataService | null = null)
       context.drawImage(image, 0, 0, width, height);
       return canvas.toDataURL("image/png");
     } catch (error) {
-      console.warn("Failed to reuse rendered image pixels:", error);
+      if (!isCanvasSecurityError(error)) {
+        console.warn("Failed to reuse rendered image pixels:", error);
+      }
       return null;
     }
+  }
+
+  function shouldSkipRenderedPixelReuse(image: HTMLImageElement): boolean {
+    const imageUrl = normalizeImageUrl(image.currentSrc || image.src);
+    if (!imageUrl) {
+      return false;
+    }
+
+    try {
+      return new URL(imageUrl).hostname.toLowerCase() === "i.pximg.net";
+    } catch {
+      return false;
+    }
+  }
+
+  function isCanvasSecurityError(error: unknown): boolean {
+    return error instanceof DOMException && error.name === "SecurityError";
   }
 
   function buildImageCandidateUrls(

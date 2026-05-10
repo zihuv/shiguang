@@ -65,6 +65,7 @@ describe("collector rendered image reuse", () => {
     document.body.innerHTML = `<img id="target" src="https://sns-webpic-qc.xhscdn.com/image-webp" />`;
     const image = document.getElementById("target") as HTMLImageElement;
     markImageLoaded(image);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     HTMLCanvasElement.prototype.getContext = vi.fn(() => ({ drawImage: vi.fn() })) as never;
     HTMLCanvasElement.prototype.toDataURL = vi.fn(() => {
       throw new DOMException("Tainted canvas", "SecurityError");
@@ -76,6 +77,35 @@ describe("collector rendered image reuse", () => {
     });
 
     expect(result).toEqual({ success: true });
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "collectImage",
+        payload: expect.objectContaining({
+          imageUrl: image.src,
+          renderedImageDataUrl: null,
+        }),
+      }),
+    );
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("skips rendered pixel reuse for Pixiv images", async () => {
+    document.body.innerHTML = `<img id="target" src="https://i.pximg.net/img-master/img/2022/09/13/16/22/07/101199573_p0_master1200.jpg" />`;
+    const image = document.getElementById("target") as HTMLImageElement;
+    markImageLoaded(image, 3056, 6767);
+    const drawImage = vi.fn();
+    HTMLCanvasElement.prototype.getContext = vi.fn(() => ({ drawImage })) as never;
+    HTMLCanvasElement.prototype.toDataURL = vi.fn(() => DATA_URL);
+
+    const collector = createCollector();
+    const result = await collector.requestCollectImage(image.src, {
+      target: image,
+      referer: "https://www.pixiv.net/artworks/101199573#1",
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(drawImage).not.toHaveBeenCalled();
+    expect(HTMLCanvasElement.prototype.toDataURL).not.toHaveBeenCalled();
     expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "collectImage",
