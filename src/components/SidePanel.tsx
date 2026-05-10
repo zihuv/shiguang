@@ -17,13 +17,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
-import {
-  appIconButtonClass,
-  appPanelClass,
-  appPanelMetaClass,
-  appSectionLabelClass,
-  appTreeRowClass,
-} from "@/lib/ui";
+import { appIconButtonClass, appPanelClass, appPanelMetaClass, appTreeRowClass } from "@/lib/ui";
 import FolderTree from "@/components/FolderTree";
 import { selectSmartCollectionFromSidebar } from "@/components/folder-tree/utils";
 import { useFolderStore } from "@/stores/folderStore";
@@ -60,6 +54,10 @@ const SMART_COLLECTION_ITEMS: Array<{
   { id: "random", label: "随机模式", icon: Shuffle },
   { id: "similar", label: "重复/相似", icon: ScanSearch },
 ];
+
+const sidebarRowClass = "h-7 gap-1.5 rounded-lg px-1 py-0";
+const sidebarLeadingClass = "h-5 w-3.5 flex-shrink-0";
+const sidebarIconClass = "size-[17px] flex-shrink-0";
 
 export default function SidePanel({ onCollapse, onOpenSettings, width }: SidePanelProps) {
   const currentView = useNavigationStore((state) => state.currentView);
@@ -135,10 +133,11 @@ export default function SidePanel({ onCollapse, onOpenSettings, width }: SidePan
   const navItemClass = (active: boolean) =>
     cn(
       appTreeRowClass,
-      "cursor-pointer gap-1 px-1.5",
+      sidebarRowClass,
+      "cursor-pointer",
       active
-        ? "bg-primary-100 text-primary-800 dark:bg-primary-900/30 dark:text-primary-200"
-        : "text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-border",
+        ? "bg-black/[0.055] text-gray-900 dark:bg-white/[0.075] dark:text-gray-100"
+        : "text-gray-700 hover:bg-black/[0.04] dark:text-gray-300 dark:hover:bg-white/[0.055]",
     );
 
   const getSmartCollectionCount = (smartCollection: SmartCollectionId) => {
@@ -375,12 +374,8 @@ export default function SidePanel({ onCollapse, onOpenSettings, width }: SidePan
         </div>
       </div>
       <div className="app-sidebar-scroll min-h-0 flex-1 overflow-x-hidden">
-        <div className="px-2 pb-1 pt-1">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <span className={cn(appSectionLabelClass, "mb-0")}>快捷视图</span>
-          </div>
-
-          <div className="flex flex-col gap-1">
+        <div className="px-1 pb-0 pt-1.5">
+          <div className="flex flex-col gap-0.5">
             {SMART_COLLECTION_ITEMS.map((item) => {
               const Icon = item.icon;
               const count = getSmartCollectionCount(item.id);
@@ -398,11 +393,13 @@ export default function SidePanel({ onCollapse, onOpenSettings, width }: SidePan
                   className={navItemClass(isActive)}
                   onClick={() => void selectSmartCollectionFromSidebar(item.id)}
                 >
-                  <span className="h-5 w-3.5 flex-shrink-0" aria-hidden="true" />
-                  <Icon className="h-[17px] w-[17px] flex-shrink-0" />
+                  <span className={sidebarLeadingClass} aria-hidden="true" />
+                  <Icon className={sidebarIconClass} />
                   <span className="flex-1 truncate text-left">{item.label}</span>
                   {typeof count === "number" && (
-                    <span className={`${appPanelMetaClass} tabular-nums`}>{count}</span>
+                    <span className={`${appPanelMetaClass} min-w-5 text-right tabular-nums`}>
+                      {count}
+                    </span>
                   )}
                 </button>
               );
@@ -413,11 +410,13 @@ export default function SidePanel({ onCollapse, onOpenSettings, width }: SidePan
               className={navItemClass(currentView === "tags")}
               onClick={openTags}
             >
-              <span className="h-5 w-3.5 flex-shrink-0" aria-hidden="true" />
-              <Bookmark className="h-[17px] w-[17px] flex-shrink-0" />
+              <span className={sidebarLeadingClass} aria-hidden="true" />
+              <Bookmark className={sidebarIconClass} />
               <span className="flex-1 truncate text-left">标签管理</span>
               {tagCount > 0 && (
-                <span className={`${appPanelMetaClass} tabular-nums`}>{tagCount}</span>
+                <span className={`${appPanelMetaClass} min-w-5 text-right tabular-nums`}>
+                  {tagCount}
+                </span>
               )}
             </button>
 
@@ -426,17 +425,19 @@ export default function SidePanel({ onCollapse, onOpenSettings, width }: SidePan
               className={navItemClass(currentView === "trash")}
               onClick={openTrash}
             >
-              <span className="h-5 w-3.5 flex-shrink-0" aria-hidden="true" />
-              <Trash2 className="h-[17px] w-[17px] flex-shrink-0" />
+              <span className={sidebarLeadingClass} aria-hidden="true" />
+              <Trash2 className={sidebarIconClass} />
               <span className="flex-1 truncate text-left">回收站</span>
               {trashCount > 0 && (
-                <span className={`${appPanelMetaClass} tabular-nums`}>{trashCount}</span>
+                <span className={`${appPanelMetaClass} min-w-5 text-right tabular-nums`}>
+                  {trashCount}
+                </span>
               )}
             </button>
           </div>
         </div>
 
-        <div className="pt-3">
+        <div className="pt-0">
           <FolderTree showAllFilesRow={false} showHeader />
         </div>
       </div>

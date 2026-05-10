@@ -14,7 +14,7 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
-import { appPanelMetaClass, appTreeRowClass } from "@/lib/ui";
+import { appTreeRowClass } from "@/lib/ui";
 import { showFolderInExplorer } from "@/services/desktop/system";
 import { useFolderStore, type FolderNode } from "@/stores/folderStore";
 import { useImportStore } from "@/stores/importStore";
@@ -97,7 +97,7 @@ export function FolderItem({
   const hasChildren = folder.children && folder.children.length > 0;
   const isBeingDragged = activeId === folder.id;
   const isExternalDragTarget = dragOverFolderId === folder.id;
-  const folderRowPaddingLeft = depth * 14 + 6;
+  const folderRowPaddingLeft = depth * 18 + 4;
   const isBrowserCollectionFolder = folder.name === BROWSER_COLLECTION_FOLDER_NAME;
   const browserCollectionIcon = getBrowserCollectionIconOption(browserCollectionIconId);
   const BrowserCollectionIcon = browserCollectionIcon.Icon;
@@ -375,10 +375,10 @@ export function FolderItem({
             data-folder-id={folder.id}
             className={cn(
               appTreeRowClass,
-              "h-8 gap-1 px-1.5 pr-2 text-gray-700 outline-none dark:text-gray-300",
+              "h-7 gap-1.5 rounded-lg px-0 py-0 pr-2 text-gray-700 outline-none dark:text-gray-300",
               isBeingDragged ? "opacity-50" : "cursor-pointer",
               isSelected
-                ? "bg-black/[0.055] text-gray-900 ring-1 ring-inset ring-black/[0.045] dark:bg-white/[0.075] dark:text-gray-100 dark:ring-white/[0.06]"
+                ? "bg-black/[0.055] text-gray-900 dark:bg-white/[0.075] dark:text-gray-100"
                 : isExternalDragTarget
                   ? "bg-emerald-100 text-emerald-900 ring-1 ring-inset ring-emerald-300 dark:bg-emerald-900/25 dark:text-emerald-100 dark:ring-emerald-600/80"
                   : isNestingTarget
@@ -406,7 +406,7 @@ export function FolderItem({
                 }}
               >
                 <ChevronRight
-                  className={`h-3.5 w-3.5 text-gray-400 transition-transform dark:text-gray-500 ${
+                  className={`size-3.5 text-gray-400 transition-transform dark:text-gray-500 ${
                     isExpanded ? "rotate-90" : ""
                   }`}
                 />
@@ -417,15 +417,12 @@ export function FolderItem({
 
             {isBrowserCollectionFolder ? (
               <BrowserCollectionIcon
-                className={cn(
-                  "h-[17px] w-[17px] flex-shrink-0",
-                  browserCollectionIcon.iconClassName,
-                )}
+                className={cn("size-[17px] flex-shrink-0", browserCollectionIcon.iconClassName)}
               />
             ) : (
               <FolderIcon
                 className={cn(
-                  "h-[17px] w-[17px] flex-shrink-0",
+                  "size-[17px] flex-shrink-0",
                   isSelected
                     ? "text-amber-500 dark:text-amber-300"
                     : "text-amber-500/90 dark:text-amber-400/90",
@@ -434,18 +431,6 @@ export function FolderItem({
             )}
 
             <span className="min-w-0 flex-1 truncate text-left font-medium">{folder.name}</span>
-
-            {folder.fileCount > 0 && (
-              <span
-                className={cn(
-                  appPanelMetaClass,
-                  "ml-2 min-w-[1.5rem] text-right tabular-nums",
-                  isSelected && "text-gray-600 dark:text-gray-300",
-                )}
-              >
-                {folder.fileCount}
-              </span>
-            )}
           </div>
         </ContextMenuTrigger>
 
@@ -542,7 +527,7 @@ export function FolderItem({
       </ContextMenu>
 
       {hasChildren && isExpanded && (
-        <div className="mt-1 flex flex-col gap-1">
+        <div className="mt-0.5 flex flex-col gap-0.5">
           {folder.children.map((child) => (
             <FolderItem
               key={child.id}

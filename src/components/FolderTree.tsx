@@ -459,8 +459,8 @@ export default function FolderTree({ showHeader = true, showAllFilesRow = true }
   return (
     <div className="flex flex-col">
       {showHeader && (
-        <div className="flex items-center justify-between px-2.5 pb-0.5 pt-1.5">
-          <h2 className={cn(appSectionLabelClass, "mb-0")}>素材目录</h2>
+        <div className="flex items-center justify-between px-1 pb-0.5 pt-0">
+          <h2 className={cn(appSectionLabelClass, "mb-0 ml-6")}>文件夹</h2>
           <div className="flex items-center gap-1">
             <Button
               variant="ghost"
@@ -514,7 +514,7 @@ export default function FolderTree({ showHeader = true, showAllFilesRow = true }
       <div
         id="folder-tree-container"
         ref={treeContainerRef}
-        className="relative px-2 pb-2 pt-0 focus:outline-none"
+        className="relative px-1 pb-2 pt-0 focus:outline-none"
         tabIndex={0}
         onKeyDown={handleTreeKeyDown}
       >
@@ -537,25 +537,25 @@ export default function FolderTree({ showHeader = true, showAllFilesRow = true }
             </svg>
           </div>
         ) : (
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-0.5">
             {showAllFilesRow && !searchQuery.trim() && (
               <div
                 ref={(element) => registerKeyboardItem(null, element)}
                 className={cn(
                   appTreeRowClass,
-                  "h-8 cursor-pointer gap-1 px-1.5 pr-2 text-gray-700 dark:text-gray-300",
+                  "h-7 cursor-pointer gap-1.5 rounded-lg px-0 py-0 pr-2 text-gray-700 dark:text-gray-300",
                   currentView === "library" && selectedFolderId === null
-                    ? "bg-black/[0.055] text-gray-900 ring-1 ring-inset ring-black/[0.045] dark:bg-white/[0.075] dark:text-gray-100 dark:ring-white/[0.06]"
+                    ? "bg-black/[0.055] text-gray-900 dark:bg-white/[0.075] dark:text-gray-100"
                     : "hover:bg-black/[0.04] dark:hover:bg-white/[0.055]",
                 )}
-                style={{ paddingLeft: "6px" }}
+                style={{ paddingLeft: "4px" }}
                 onClick={() => {
                   focusTree();
                   void selectFolderForKeyboard(null);
                 }}
               >
                 <span className="h-5 w-3.5 flex-shrink-0" aria-hidden="true" />
-                <Files className="h-4 w-4 flex-shrink-0 text-gray-500" />
+                <Files className="size-[17px] flex-shrink-0 text-gray-500" />
                 <span className="flex-1 truncate text-gray-700 dark:text-gray-300">全部文件</span>
               </div>
             )}
