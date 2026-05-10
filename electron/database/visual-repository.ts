@@ -5,7 +5,7 @@ import { attachTags, currentTimestamp, pageArgs } from "./shared";
 import { queryFilteredRows } from "./file-repository";
 import { getDrizzleDb } from "./client";
 import { fileVisualEmbeddings, files } from "./schema";
-import { canVisualSearchImage } from "../../src/shared/file-formats";
+import { canVisualSearchImage } from "../media";
 
 export type VisualIndexCandidate = {
   file: {
@@ -484,6 +484,10 @@ export function searchFilesByVisualEmbedding(
         return null;
       }
 
+      if (!isVisualSearchSupportedExtension(file.ext)) {
+        return null;
+      }
+
       const embedding = embeddingMap.get(file.id);
       if (!embedding) {
         return null;
@@ -533,6 +537,7 @@ export function getFileVisualEmbeddingQuery(
     .select({
       id: files.id,
       name: files.name,
+      ext: files.ext,
       model_id: fileVisualEmbeddings.modelId,
       dimensions: fileVisualEmbeddings.dimensions,
       embedding: fileVisualEmbeddings.embedding,
@@ -554,6 +559,9 @@ export function getFileVisualEmbeddingQuery(
     .get();
 
   if (!row) {
+    return null;
+  }
+  if (!isVisualSearchSupportedExtension(row.ext)) {
     return null;
   }
 

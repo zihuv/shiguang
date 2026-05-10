@@ -14,7 +14,7 @@ import {
   updateFileMetadata,
   updateFileNameRecord,
 } from "../database";
-import { canAnalyzeImage } from "../media";
+import { canAnalyzeImage, unsupportedImageFormatMessage } from "../media";
 import {
   AI_METADATA_FIELDS,
   DEFAULT_AI_METADATA_ANALYSIS,
@@ -367,13 +367,14 @@ export async function analyzeFileMetadata(
   fileId: number,
   imageDataUrl?: string,
 ): Promise<FileRecord> {
-  const config = loadAiConfig(state);
   const file = getFileById(state.db, fileId);
   if (!file) throw new Error("文件不存在");
-  if (!canAnalyzeImage(file.ext) && !imageDataUrl)
-    throw new Error("当前仅支持对图片文件执行 AI 分析");
+  if (!canAnalyzeImage(file.ext) && !imageDataUrl) {
+    throw new Error(unsupportedImageFormatMessage(file.ext));
+  }
   if (!fssync.existsSync(file.path)) throw new Error("文件不存在，无法执行 AI 分析");
 
+  const config = loadAiConfig(state);
   const dataUrl = imageDataUrl?.trim() || (await buildAiImageDataUrl(file.path));
   const enabledFields = enabledAiMetadataFields(config.analysis);
   if (enabledFields.length === 0) {

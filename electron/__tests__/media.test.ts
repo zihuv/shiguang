@@ -2,18 +2,23 @@ import { describe, expect, it } from "vitest";
 import {
   canAnalyzeImage,
   canBackendDecodeImage,
+  canSharpDecodeImagePixels,
+  canVisualSearchImage,
   detectExtensionFromBytes,
   isBlockedUnsupportedExtension,
   isScanSupportedExtension,
 } from "../media";
 
 describe("media format support", () => {
-  it("supports lightweight image aliases and HEIC/HEIF paths", () => {
+  it("supports lightweight image aliases and keeps HEIC/HEIF out of pixel AI paths", () => {
     expect(isScanSupportedExtension("jfif")).toBe(true);
     expect(isScanSupportedExtension("jpe")).toBe(true);
     expect(isScanSupportedExtension("heic")).toBe(true);
     expect(canBackendDecodeImage("heif")).toBe(true);
     expect(canAnalyzeImage("jfif")).toBe(true);
+    expect(canAnalyzeImage("heic")).toBe(false);
+    expect(canVisualSearchImage("heif")).toBe(false);
+    expect(canSharpDecodeImagePixels("avif")).toBe(true);
   });
 
   it("allows office, audio, archive, and additional video extensions for indexing", () => {

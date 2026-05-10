@@ -7,8 +7,10 @@ import {
   SCAN_SUPPORTED_EXTENSIONS as SCAN_SUPPORTED_EXTENSION_LIST,
   canAnalyzeImageMetadata,
   canExtractImageMetadata,
+  canVisualSearchImage as canVisualSearchImageFormat,
   extensionSet,
   getExtensionForContentType,
+  normalizeExtension,
 } from "../src/shared/file-formats";
 
 const PROBE_READ_LIMIT = 4096;
@@ -132,8 +134,41 @@ export function canBackendDecodeImage(ext: string): boolean {
   return canExtractImageMetadata(ext);
 }
 
+const SHARP_FORMAT_BY_EXTENSION: Record<string, string> = {
+  jpg: "jpeg",
+  jpeg: "jpeg",
+  jpe: "jpeg",
+  jfif: "jpeg",
+  avif: "heif",
+  heic: "heif",
+  heif: "heif",
+  tif: "tiff",
+  tiff: "tiff",
+};
+
+export function canSharpDecodeImagePixels(ext: string): boolean {
+  const normalizedExt = normalizeExtension(ext);
+  const sharpFormatId = SHARP_FORMAT_BY_EXTENSION[normalizedExt] ?? normalizedExt;
+  const format = sharp.format[sharpFormatId as keyof typeof sharp.format];
+  if (!format?.input.file) {
+    return false;
+  }
+
+  const suffixes = format.input.fileSuffix;
+  return !suffixes || suffixes.includes(`.${normalizedExt}`);
+}
+
 export function canAnalyzeImage(ext: string): boolean {
-  return canAnalyzeImageMetadata(ext);
+  return canAnalyzeImageMetadata(ext) && canSharpDecodeImagePixels(ext);
+}
+
+export function canVisualSearchImage(ext: string): boolean {
+  return canVisualSearchImageFormat(ext) && canSharpDecodeImagePixels(ext);
+}
+
+export function unsupportedImageFormatMessage(ext: string): string {
+  const normalizedExt = normalizeExtension(ext);
+  return `不支持格式：${(normalizedExt || "未知").toUpperCase()}`;
 }
 
 export async function getImageDimensions(

@@ -7,6 +7,7 @@ import { useLibraryQueryStore } from "@/stores/libraryQueryStore";
 import { useSelectionStore } from "@/stores/selectionStore";
 import { useTrashStore } from "@/stores/trashStore";
 import { copyFilesToClipboard } from "@/lib/clipboard";
+import { getErrorMessage } from "@/services/desktop/core";
 import { openFile, showInExplorer } from "@/services/desktop/system";
 import { canAnalyzeImageMetadata } from "@/shared/file-formats";
 import { Button } from "@/components/ui/Button";
@@ -37,6 +38,15 @@ interface BatchAnalyzeDialogState {
 
 function canAnalyzeFileWithAi(file: FileItem) {
   return canAnalyzeImageMetadata(file.ext);
+}
+
+function formatUnsupportedAiFormat(file: FileItem) {
+  return `不支持格式：${(file.ext || "未知").toUpperCase()}`;
+}
+
+function formatAiAnalyzeError(error: unknown) {
+  const message = getErrorMessage(error);
+  return message.startsWith("不支持格式") ? message : `AI 分析失败: ${message}`;
 }
 
 function hasExistingAiMetadata(file: FileItem) {
@@ -178,7 +188,11 @@ export default function FileContextMenu({ file, children }: FileContextMenuProps
     const skippedUnsupportedCount = Math.max(0, actionFiles.length - analyzableFiles.length);
 
     if (analyzableFiles.length === 0) {
-      toast.error("当前仅支持对图片执行 AI 分析");
+      toast.error(
+        actionFiles.length === 1
+          ? formatUnsupportedAiFormat(actionFiles[0])
+          : "没有可执行 AI 分析的图片",
+      );
       return;
     }
 
@@ -189,7 +203,7 @@ export default function FileContextMenu({ file, children }: FileContextMenuProps
         toast.success("AI 分析已完成", { id: loadingToast });
       } catch (e) {
         console.error("Failed to analyze file metadata:", e);
-        toast.error(`AI 分析失败: ${String(e)}`, { id: loadingToast });
+        toast.error(formatAiAnalyzeError(e), { id: loadingToast });
       }
       return;
     }

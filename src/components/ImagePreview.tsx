@@ -22,6 +22,7 @@ import {
 import { VideoPlayer, type VideoPlaybackSnapshot } from "@/components/video/VideoPlayer";
 import { usePreviewSource } from "@/components/image-preview/usePreviewSource";
 import { usePreviewZoomPan } from "@/components/image-preview/usePreviewZoomPan";
+import { getErrorMessage } from "@/services/desktop/core";
 import { updateFileDimensions } from "@/services/desktop/files";
 import { openFile, showInExplorer } from "@/services/desktop/system";
 import { canAnalyzeImageMetadata } from "@/shared/file-formats";
@@ -43,6 +44,15 @@ const FULLSCREEN_EVENT_FALLBACK_TIMEOUT_MS = 2200;
 
 function getVideoPlaybackSnapshotKey(file: FileItem) {
   return `${file.id}:${file.modifiedAt}:${file.size}`;
+}
+
+function formatUnsupportedAiFormat(file: FileItem) {
+  return `不支持格式：${(file.ext || "未知").toUpperCase()}`;
+}
+
+function formatAiAnalyzeError(error: unknown) {
+  const message = getErrorMessage(error);
+  return message.startsWith("不支持格式") ? message : `AI 分析失败: ${message}`;
 }
 
 function waitForWindowFullscreenEvent(expectedFullscreen: boolean) {
@@ -167,7 +177,9 @@ export default function ImagePreview() {
 
   const handleAnalyzeMetadata = async () => {
     if (!currentFile || !canAnalyzeWithAi) {
-      toast.error("当前仅支持对图片执行 AI 分析");
+      toast.error(
+        currentFile ? formatUnsupportedAiFormat(currentFile) : "当前仅支持对图片执行 AI 分析",
+      );
       return;
     }
 
@@ -177,7 +189,7 @@ export default function ImagePreview() {
       toast.success("AI 分析已完成", { id: loadingToast });
     } catch (error) {
       console.error("Failed to analyze file metadata:", error);
-      toast.error(`AI 分析失败: ${String(error)}`, { id: loadingToast });
+      toast.error(formatAiAnalyzeError(error), { id: loadingToast });
     }
   };
 
