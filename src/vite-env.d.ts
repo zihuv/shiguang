@@ -40,6 +40,10 @@ interface ShiguangDesktopApi {
   window: {
     setFullscreen(enabled: boolean): Promise<boolean>;
     isFullscreen(): Promise<boolean>;
+    minimize(): Promise<boolean>;
+    toggleMaximize(): Promise<boolean>;
+    isMaximized(): Promise<boolean>;
+    close(): Promise<boolean>;
   };
   log(level: string, message: string): Promise<void>;
 }

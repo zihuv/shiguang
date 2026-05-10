@@ -126,6 +126,7 @@ export function createWindowManager(options: WindowManagerOptions) {
   }
 
   async function createMainWindow(): Promise<BrowserWindow> {
+    const isMac = process.platform === "darwin";
     const preload = path.join(__dirname, "../preload/preload.cjs");
     const window = new BrowserWindow({
       width: 1280,
@@ -135,6 +136,9 @@ export function createWindowManager(options: WindowManagerOptions) {
       title: "拾光",
       icon: getAppIconPath(),
       autoHideMenuBar: true,
+      frame: isMac,
+      titleBarStyle: isMac ? "hiddenInset" : undefined,
+      trafficLightPosition: isMac ? { x: 18, y: 18 } : undefined,
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,

@@ -182,6 +182,42 @@ export function registerIpcHandlers(
     const window = BrowserWindow.fromWebContents(event.sender) ?? getWindow();
     return Boolean(window && !window.isDestroyed() && window.isFullScreen());
   });
+  ipcMain.handle("shiguang:window:minimize", (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender) ?? getWindow();
+    if (!window || window.isDestroyed()) {
+      return false;
+    }
+
+    window.minimize();
+    return true;
+  });
+  ipcMain.handle("shiguang:window:toggle-maximize", (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender) ?? getWindow();
+    if (!window || window.isDestroyed()) {
+      return false;
+    }
+
+    if (window.isMaximized()) {
+      window.unmaximize();
+    } else {
+      window.maximize();
+    }
+
+    return window.isMaximized();
+  });
+  ipcMain.handle("shiguang:window:is-maximized", (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender) ?? getWindow();
+    return Boolean(window && !window.isDestroyed() && window.isMaximized());
+  });
+  ipcMain.handle("shiguang:window:close", (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender) ?? getWindow();
+    if (!window || window.isDestroyed()) {
+      return false;
+    }
+
+    window.close();
+    return true;
+  });
   ipcMain.handle("shiguang:log", (_event, level: string, message: string) => {
     const payload = rendererLogSchema.parse({ level, message });
     const writer =

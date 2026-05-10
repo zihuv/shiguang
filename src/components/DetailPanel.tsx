@@ -1,21 +1,16 @@
-import { useState, type ButtonHTMLAttributes, type ReactNode } from "react";
-import { toast } from "sonner";
+import { type ReactNode } from "react";
 import { type FileItem } from "@/stores/fileTypes";
 import { useFolderStore, FolderNode } from "@/stores/folderStore";
 import { useLibraryQueryStore } from "@/stores/libraryQueryStore";
 import { useSelectionStore } from "@/stores/selectionStore";
-import { useTrashStore } from "@/stores/trashStore";
 import FileTagInput from "@/components/FileTagInput";
 import { formatDateTime, formatSize, findFolderById } from "@/utils";
 import { cn } from "@/lib/utils";
 import {
-  appIconButtonClass,
   appPanelClass,
-  appPanelHeaderClass,
   appPanelMetaClass,
   appPanelTitleClass,
   appPanelValueClass,
-  appQuietButtonClass,
   appSectionHeadingClass,
   appSectionLabelClass,
 } from "@/lib/ui";
@@ -31,21 +26,8 @@ interface DetailPanelProps {
   width: number;
 }
 
-function PanelIconButton({
-  className,
-  type = "button",
-  ...props
-}: ButtonHTMLAttributes<HTMLButtonElement>) {
-  return <button type={type} className={cn(appIconButtonClass, className)} {...props} />;
-}
-
-function PanelActionButton({
-  className,
-  type = "button",
-  ...props
-}: ButtonHTMLAttributes<HTMLButtonElement>) {
-  return <button type={type} className={cn(appQuietButtonClass, className)} {...props} />;
-}
+const appDetailChromeClass =
+  "app-detail-chrome app-drag-region flex flex-shrink-0 items-center justify-between px-3";
 
 function InfoRow({ label, value }: { label: string; value: ReactNode }) {
   return (
@@ -126,64 +108,13 @@ export default function DetailPanel({ width }: DetailPanelProps) {
 }
 
 function FolderDetailPanel({ folder, width }: { folder: FolderNode; width: number }) {
-  const { deleteFolder: deleteFolderFn, folders } = useFolderStore();
-  const selectedFolderId = useFolderStore((state) => state.selectedFolderId);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const { folders } = useFolderStore();
   const folderDisplayPath = getFolderDisplayPath(folders, folder.id) ?? folder.name;
-
-  const handleDelete = async () => {
-    const result = await deleteFolderFn(folder.id);
-    if (result?.movedToTrash) {
-      await useTrashStore.getState().addFolderDeleteToUndoStack({
-        folderId: result.folderId,
-        folderName: result.folderName,
-        folderPath: result.folderPath,
-        shouldSelectOnUndo: selectedFolderId === folder.id,
-      });
-      toast.success(`已删除文件夹“${result.folderName}”，可在回收站恢复或按 Cmd/Ctrl+Z 撤回。`);
-    } else if (result) {
-      toast.success(`已删除文件夹“${result.folderName}”。`);
-    }
-    setShowDeleteConfirm(false);
-  };
 
   return (
     <div className={`${appPanelClass} flex-shrink-0`} style={{ width }}>
-      <div className={appPanelHeaderClass}>
+      <div className={appDetailChromeClass}>
         <h3 className={appPanelTitleClass}>文件夹详情</h3>
-        <div className="flex items-center gap-1">
-          {showDeleteConfirm ? (
-            <>
-              <PanelActionButton
-                onClick={handleDelete}
-                className="bg-red-500 text-white hover:bg-red-600"
-              >
-                确认删除
-              </PanelActionButton>
-              <PanelActionButton
-                onClick={() => setShowDeleteConfirm(false)}
-                className="bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-              >
-                取消
-              </PanelActionButton>
-            </>
-          ) : (
-            <PanelIconButton
-              onClick={() => setShowDeleteConfirm(true)}
-              className="text-red-500 hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-900/30"
-              title="删除文件夹"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                />
-              </svg>
-            </PanelIconButton>
-          )}
-        </div>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-4 pb-5 pt-5 [&>*]:shrink-0">
@@ -223,7 +154,6 @@ function FolderDetailPanel({ folder, width }: { folder: FolderNode; width: numbe
 }
 
 function FileDetailPanel({ file, width }: { file: FileItem; width: number }) {
-  const deleteFile = useTrashStore((state) => state.deleteFile);
   const updateFileMetadata = useLibraryQueryStore((state) => state.updateFileMetadata);
   const updateFileName = useLibraryQueryStore((state) => state.updateFileName);
   const { folders } = useFolderStore();
@@ -231,7 +161,6 @@ function FileDetailPanel({ file, width }: { file: FileItem; width: number }) {
   // Find folder by file's folderId
   const folder = file.folderId ? findFolderById(folders, file.folderId) : null;
   const folderDisplayPath = file.folderId ? getFolderDisplayPath(folders, file.folderId) : null;
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const {
     description,
     editedName,
@@ -261,47 +190,10 @@ function FileDetailPanel({ file, width }: { file: FileItem; width: number }) {
     videoPosterSrc,
   } = useDetailPreview({ file, width });
 
-  const handleDelete = async () => {
-    await deleteFile(file.id);
-  };
-
   return (
     <div className={`${appPanelClass} flex-shrink-0`} style={{ width }}>
-      <div className={appPanelHeaderClass}>
+      <div className={appDetailChromeClass}>
         <h3 className={appPanelTitleClass}>文件详情</h3>
-        <div className="flex items-center gap-1">
-          {showDeleteConfirm ? (
-            <>
-              <PanelActionButton
-                onClick={handleDelete}
-                className="bg-red-500 text-white hover:bg-red-600"
-              >
-                确认删除
-              </PanelActionButton>
-              <PanelActionButton
-                onClick={() => setShowDeleteConfirm(false)}
-                className="bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-              >
-                取消
-              </PanelActionButton>
-            </>
-          ) : (
-            <PanelIconButton
-              onClick={() => setShowDeleteConfirm(true)}
-              className="text-red-500 hover:bg-red-100 hover:text-red-600 dark:hover:bg-red-900/30"
-              title="删除文件"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                />
-              </svg>
-            </PanelIconButton>
-          )}
-        </div>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto px-4 pb-5 pt-4 [&>*]:shrink-0">

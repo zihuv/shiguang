@@ -15,7 +15,8 @@
   --app-surface-muted: #f1efeb;
   --app-border: rgba(15, 23, 42, 0.035);
   --app-border-strong: rgba(15, 23, 42, 0.055);
-  --app-header-height: 54px;
+  --app-header-height: 0px;
+  --app-column-chrome-height: 48px;
   --app-panel-header-height: 44px;
   --app-shadow: 0 14px 32px rgba(15, 23, 42, 0.045);
 }
@@ -70,6 +71,28 @@ body {
 .app-topbar {
   height: var(--app-header-height);
   background: var(--app-surface);
+}
+
+.app-drag-region {
+  -webkit-app-region: drag;
+}
+
+.app-no-drag,
+button,
+input,
+textarea,
+select {
+  -webkit-app-region: no-drag;
+}
+
+.app-sidebar-chrome,
+.app-main-chrome,
+.app-detail-chrome {
+  min-height: var(--app-column-chrome-height);
+}
+
+.app-sidebar-chrome-mac {
+  min-height: 72px;
 }
 
 .app-panel {

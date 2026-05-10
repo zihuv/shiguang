@@ -1,8 +1,30 @@
-import { type RefObject } from "react";
-import { ArrowUpDown, Filter } from "lucide-react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type RefObject,
+} from "react";
+import { toast } from "sonner";
+import { ArrowUpDown, ChevronLeft, ChevronRight, Filter, Search, Sparkles, X } from "lucide-react";
+import { INTERNAL_FILE_DRAG_MIME } from "@/components/folder-tree/utils";
+import { getNameWithoutExt } from "@/stores/fileTypes";
 import { type FileSortField, type SortDirection } from "@/stores/filterStore";
-import { type LibraryViewMode, type LibraryVisibleField } from "@/stores/settingsStore";
+import { useLibraryQueryStore } from "@/stores/libraryQueryStore";
+import { useSelectionStore } from "@/stores/selectionStore";
+import {
+  type LibraryViewMode,
+  type LibraryVisibleField,
+  useSettingsStore,
+} from "@/stores/settingsStore";
+import { getFile } from "@/services/desktop/files";
+import {
+  handlePrimaryClipboardShortcut,
+  handlePrimarySelectAll,
+} from "@/lib/textSelectionShortcuts";
 import { cn } from "@/lib/utils";
+import { appTagPillClass } from "@/lib/ui";
 import { InfoDisplayIcon, ViewModeIcon } from "@/components/file-grid/fileGridCards";
 import FilterPanel from "@/components/FilterPanel";
 
@@ -50,17 +72,19 @@ function getToolbarButtonClassName(isActive: boolean) {
 
 interface FileGridToolbarProps {
   activeFilterCount: number;
+  canNavigateBack: boolean;
+  canNavigateForward: boolean;
   currentSortDirectionLabel: string;
   currentSortFieldLabel: string;
   currentViewModeLabel: string;
   currentViewScale: number;
   currentViewScaleRange: { min: number; max: number };
-  filteredFileCount: number;
   isFilterPanelOpen: boolean;
   libraryVisibleFields: LibraryVisibleField[];
   openToolbarMenu: ToolbarMenu | null;
-  paginationLabel?: string;
   resetCurrentViewScale: () => void;
+  onNavigateBack: () => void;
+  onNavigateForward: () => void;
   setOpenToolbarMenu: (menu: ToolbarMenu | null) => void;
   setSortBy: (sortBy: FileSortField) => void;
   setSortDirection: (sortDirection: SortDirection) => void;
@@ -86,6 +110,8 @@ interface FileGridToolbarProps {
 export function FileGridToolbar({
   activeFilterCount,
   applyCurrentViewScale,
+  canNavigateBack,
+  canNavigateForward,
   currentSortDirectionLabel,
   currentSortFieldLabel,
   currentViewModeLabel,
@@ -93,7 +119,6 @@ export function FileGridToolbar({
   currentViewScaleRange,
   filterMenuButtonRef,
   filterMenuRef,
-  filteredFileCount,
   handleViewModeChange,
   infoMenuButtonRef,
   infoMenuRef,
@@ -101,8 +126,9 @@ export function FileGridToolbar({
   layoutMenuButtonRef,
   layoutMenuRef,
   libraryVisibleFields,
+  onNavigateBack,
+  onNavigateForward,
   openToolbarMenu,
-  paginationLabel,
   resetCurrentViewScale,
   setOpenToolbarMenu,
   setSortBy,
@@ -117,21 +143,264 @@ export function FileGridToolbar({
   viewMode,
   visibleInfoFieldLabels,
 }: FileGridToolbarProps) {
+  const searchQuery = useLibraryQueryStore((state) => state.searchQuery);
+  const setSearchQuery = useLibraryQueryStore((state) => state.setSearchQuery);
+  const aiSearchEnabled = useLibraryQueryStore((state) => state.aiSearchEnabled);
+  const setAiSearchEnabled = useLibraryQueryStore((state) => state.setAiSearchEnabled);
+  const imageQueryFile = useLibraryQueryStore((state) => state.imageQueryFile);
+  const searchSimilarToFile = useLibraryQueryStore((state) => state.searchSimilarToFile);
+  const clearImageQuery = useLibraryQueryStore((state) => state.clearImageQuery);
+  const { visualSearch, visualModelValidation } = useSettingsStore();
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [isSearchDragOver, setIsSearchDragOver] = useState(false);
+  const canUseAiSearch = Boolean(visualSearch.modelPath.trim() && visualModelValidation?.valid);
+  const imageQueryLabel = imageQueryFile ? getNameWithoutExt(imageQueryFile.name) : "";
+  const aiSearchTitle = canUseAiSearch
+    ? aiSearchEnabled
+      ? "关闭 AI 搜索"
+      : "开启 AI 搜索"
+    : "配置本地视觉模型后可用";
+
+  useEffect(() => {
+    if (!canUseAiSearch && aiSearchEnabled) {
+      setAiSearchEnabled(false);
+    }
+  }, [aiSearchEnabled, canUseAiSearch, setAiSearchEnabled]);
+
   const toggleToolbarMenu = (menu: ToolbarMenu) => {
     setOpenToolbarMenu(openToolbarMenu === menu ? null : menu);
   };
 
+  const hasInternalDragMime = (dataTransfer: DataTransfer | null) => {
+    return !!dataTransfer && Array.from(dataTransfer.types).includes(INTERNAL_FILE_DRAG_MIME);
+  };
+
+  const getDraggingStoreFileId = () => {
+    const { draggedPrimaryFileId, draggedFileIds } = useSelectionStore.getState();
+    const fileId = draggedPrimaryFileId ?? draggedFileIds[0] ?? null;
+    return Number.isInteger(fileId) && fileId > 0 ? fileId : null;
+  };
+
+  const isInternalAppFileDrag = (dataTransfer: DataTransfer | null) => {
+    if (hasInternalDragMime(dataTransfer)) {
+      return true;
+    }
+
+    const { isDraggingInternal, draggedFileIds } = useSelectionStore.getState();
+    return isDraggingInternal && draggedFileIds.length > 0;
+  };
+
+  const getDraggedAppFileId = (dataTransfer: DataTransfer | null) => {
+    if (!hasInternalDragMime(dataTransfer)) {
+      return getDraggingStoreFileId();
+    }
+
+    try {
+      if (!dataTransfer) {
+        return getDraggingStoreFileId();
+      }
+
+      const parsed = JSON.parse(dataTransfer.getData(INTERNAL_FILE_DRAG_MIME)) as unknown;
+      const fileId = Array.isArray(parsed) ? Number(parsed[0]) : Number(parsed);
+      if (Number.isInteger(fileId) && fileId > 0) {
+        return fileId;
+      }
+    } catch {
+      // Electron can expose our drag session while hiding custom MIME data from the drop target.
+    }
+
+    return getDraggingStoreFileId();
+  };
+
+  const handleSearchDragOver = (event: DragEvent<HTMLDivElement>) => {
+    if (!isInternalAppFileDrag(event.dataTransfer)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "copy";
+    setIsSearchDragOver(true);
+  };
+
+  const handleSearchDragLeave = (event: DragEvent<HTMLDivElement>) => {
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      return;
+    }
+
+    setIsSearchDragOver(false);
+  };
+
+  const handleSearchDrop = async (event: DragEvent<HTMLDivElement>) => {
+    const fileId = getDraggedAppFileId(event.dataTransfer);
+    if (!fileId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    try {
+      const selectionStore = useSelectionStore.getState();
+      if (selectionStore.currentDragSessionId && !selectionStore.markInternalDropHandled()) {
+        return;
+      }
+
+      const file = await getFile(fileId);
+      await searchSimilarToFile({ id: file.id, name: file.name });
+    } catch (error) {
+      console.error("Failed to start image search:", error);
+      toast.error("以图搜图失败");
+    } finally {
+      setIsSearchDragOver(false);
+      useSelectionStore.getState().clearInternalFileDrag();
+    }
+  };
+
+  const handleClearImageQuery = () => {
+    clearImageQuery();
+    requestAnimationFrame(() => searchInputRef.current?.focus());
+  };
+
+  const handleSearchKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (handlePrimarySelectAll(event) || handlePrimaryClipboardShortcut(event)) {
+      return;
+    }
+
+    if (
+      imageQueryFile &&
+      !searchQuery &&
+      !event.nativeEvent.isComposing &&
+      (event.key === "Backspace" || event.key === "Delete")
+    ) {
+      event.preventDefault();
+      handleClearImageQuery();
+    }
+  };
+
   return (
-    <div className="relative z-20 bg-transparent">
-      <div className="flex h-10 items-center justify-between gap-3 px-4">
-        <div className="min-w-0">
-          <span className="truncate text-[12px] text-gray-500 dark:text-gray-400">
-            {filteredFileCount} 个文件
-            {paginationLabel ? ` ${paginationLabel}` : ""}
-            {activeFilterCount > 0 ? ` · 已筛选 ${activeFilterCount} 项` : ""}
-          </span>
+    <div className="app-main-chrome app-drag-region relative z-20 flex flex-shrink-0 flex-col justify-center bg-transparent px-3">
+      <div className="flex h-8 items-center gap-2">
+        <div className="app-no-drag flex items-center gap-0.5">
+          <button
+            type="button"
+            className={cn(
+              getToolbarButtonClassName(false),
+              "size-7",
+              !canNavigateBack && "opacity-45",
+            )}
+            title="后退"
+            aria-label="后退"
+            disabled={!canNavigateBack}
+            onClick={onNavigateBack}
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            className={cn(
+              getToolbarButtonClassName(false),
+              "size-7",
+              !canNavigateForward && "opacity-45",
+            )}
+            title="前进"
+            aria-label="前进"
+            disabled={!canNavigateForward}
+            onClick={onNavigateForward}
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
         </div>
-        <div className="flex items-center gap-1.5">
+
+        <div
+          className={cn(
+            "app-no-drag relative flex h-8 min-w-[10rem] max-w-[17rem] flex-[0_1_17rem] cursor-text items-center gap-1.5 rounded-[10px] border border-transparent bg-black/[0.035] pr-1.5 text-[13px] text-gray-800 transition-[border-color,box-shadow,background-color,color] focus-within:border-primary-500/35 focus-within:bg-black/[0.05] focus-within:ring-2 focus-within:ring-primary-500/18 dark:bg-white/[0.05] dark:text-gray-200 dark:focus-within:border-primary-500/40 dark:focus-within:bg-white/[0.07]",
+            imageQueryFile ? "pl-2" : "pl-8",
+            imageQueryFile && "border-primary-500/25 dark:border-primary-500/35",
+            isSearchDragOver &&
+              "border-primary-500/40 bg-primary-500/8 ring-2 ring-primary-500/18 dark:bg-primary-500/12",
+          )}
+          onClick={() => searchInputRef.current?.focus()}
+          onDragEnter={handleSearchDragOver}
+          onDragLeave={handleSearchDragLeave}
+          onDragOver={handleSearchDragOver}
+          onDrop={(event) => void handleSearchDrop(event)}
+        >
+          {!imageQueryFile ? (
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
+          ) : null}
+          {imageQueryFile ? (
+            <span
+              className={cn(
+                appTagPillClass,
+                "h-5 min-w-0 max-w-[78%] flex-shrink bg-primary-600 py-0 pl-2 pr-1 text-[11px] text-primary-50 dark:bg-primary-500 dark:text-white",
+              )}
+              title={`以图搜图：${imageQueryFile.name}`}
+            >
+              <span className="truncate">以图搜图：{imageQueryLabel}</span>
+              <button
+                type="button"
+                className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/18"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleClearImageQuery();
+                }}
+                title="移除以图搜图"
+                aria-label="移除以图搜图"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ) : null}
+          <input
+            ref={searchInputRef}
+            type="text"
+            placeholder={imageQueryFile ? "" : aiSearchEnabled ? "AI 搜索图片..." : "搜索文件名"}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={handleSearchKeyDown}
+            className="input-system-font h-full min-w-[48px] flex-1 border-0 bg-transparent p-0 text-[13px] text-gray-800 placeholder:text-gray-400 focus:outline-none dark:text-gray-200"
+            spellCheck={false}
+            autoCorrect="off"
+            autoCapitalize="off"
+          />
+          <button
+            type="button"
+            role="switch"
+            aria-checked={aiSearchEnabled}
+            aria-label="AI 搜索"
+            disabled={!canUseAiSearch}
+            title={aiSearchTitle}
+            onClick={(event) => {
+              event.stopPropagation();
+              setAiSearchEnabled(!aiSearchEnabled);
+            }}
+            className={cn(
+              "inline-flex size-6 flex-shrink-0 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+              aiSearchEnabled
+                ? "bg-primary-600 text-white hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-400"
+                : "text-gray-400 hover:bg-black/[0.05] hover:text-gray-700 dark:text-gray-500 dark:hover:bg-white/[0.07] dark:hover:text-gray-200",
+            )}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
+        <div className="min-w-0 flex-1" />
+
+        <div className="app-no-drag flex items-center gap-1.5">
+          <div className="hidden items-center sm:flex" onDoubleClick={resetCurrentViewScale}>
+            <input
+              type="range"
+              min={currentViewScaleRange.min}
+              max={currentViewScaleRange.max}
+              step={0.02}
+              value={currentViewScale}
+              onChange={(event) => applyCurrentViewScale(Number(event.target.value))}
+              className="h-1 w-16 cursor-pointer accent-gray-400 opacity-70 transition-opacity hover:opacity-100 dark:accent-gray-500"
+              aria-label="当前视图缩放"
+            />
+          </div>
           <button
             ref={filterMenuButtonRef}
             type="button"
@@ -342,23 +611,11 @@ export function FileGridToolbar({
               </div>
             )}
           </div>
-          <div className="hidden items-center sm:flex" onDoubleClick={resetCurrentViewScale}>
-            <input
-              type="range"
-              min={currentViewScaleRange.min}
-              max={currentViewScaleRange.max}
-              step={0.02}
-              value={currentViewScale}
-              onChange={(event) => applyCurrentViewScale(Number(event.target.value))}
-              className="h-1 w-14 cursor-pointer accent-gray-400 opacity-70 transition-opacity hover:opacity-100 dark:accent-gray-500"
-              aria-label="当前视图缩放"
-            />
-          </div>
         </div>
       </div>
 
       {isFilterPanelOpen && (
-        <div ref={filterMenuRef} className="px-4 pb-3 pt-1">
+        <div ref={filterMenuRef} className="app-no-drag pb-2 pt-2">
           <FilterPanel />
         </div>
       )}

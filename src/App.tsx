@@ -8,7 +8,6 @@ import { useImportStore } from "@/stores/importStore";
 import { useLibraryQueryStore } from "@/stores/libraryQueryStore";
 import { usePreviewStore } from "@/stores/previewStore";
 import { useSelectionStore } from "@/stores/selectionStore";
-import Header from "@/components/Header";
 import SidePanel from "@/components/SidePanel";
 import FileGrid from "@/components/FileGrid";
 import DetailPanel from "@/components/DetailPanel";
@@ -17,6 +16,7 @@ import AppStartupScreen from "@/components/AppStartupScreen";
 import TagPanel from "@/components/TagPanel";
 import TrashPanel from "@/components/TrashPanel";
 import { PanelResizeHandle, PanelRestoreToggle } from "@/components/app-shell/PanelControls";
+import { WindowControls } from "@/components/app-shell/WindowControls";
 import { useAppPanelLayout } from "@/hooks/useAppPanelLayout";
 import { useAppInitialization } from "@/hooks/useAppInitialization";
 import { useClipboardImport } from "@/hooks/useClipboardImport";
@@ -113,11 +113,14 @@ function App() {
 
   if (!hasBootstrapped) {
     return (
-      <AppStartupScreen
-        sidebarWidth={sidebarWidth}
-        detailPanelWidth={detailPanelWidth}
-        errorMessage={bootstrapError}
-      />
+      <>
+        <WindowControls />
+        <AppStartupScreen
+          sidebarWidth={sidebarWidth}
+          detailPanelWidth={detailPanelWidth}
+          errorMessage={bootstrapError}
+        />
+      </>
     );
   }
 
@@ -152,12 +155,16 @@ function App() {
         </div>
       )}
 
-      <Header onOpenSettings={() => setShowSettings(true)} />
+      <WindowControls />
 
       <div ref={contentContainerRef} className="relative flex flex-1 overflow-hidden">
         {!isSidebarCollapsed ? (
           <>
-            <SidePanel width={sidebarWidth} onCollapse={() => setSidebarCollapsed(true)} />
+            <SidePanel
+              width={sidebarWidth}
+              onCollapse={() => setSidebarCollapsed(true)}
+              onOpenSettings={() => setShowSettings(true)}
+            />
 
             <PanelResizeHandle
               ariaLabel="调整左侧面板宽度"

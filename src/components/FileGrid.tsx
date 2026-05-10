@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 
 import { type FileItem } from "@/stores/fileTypes";
 import { useFilterStore } from "@/stores/filterStore";
 import { useLibraryQueryStore } from "@/stores/libraryQueryStore";
+import { useLibraryNavigationHistoryStore } from "@/stores/libraryNavigationHistoryStore";
 import { useNavigationStore } from "@/stores/navigationStore";
 import { usePreviewStore } from "@/stores/previewStore";
 import { useSelectionStore } from "@/stores/selectionStore";
@@ -30,6 +31,7 @@ import {
   prewarmThumbHashPlaceholders,
   prewarmThumbnailImageSources,
 } from "@/components/file-grid/fileGridPreviewLoader";
+import { navigateToLibraryHistoryEntry } from "@/components/folder-tree/utils";
 import { useFileGridKeyboardNavigation } from "@/components/file-grid/useFileGridKeyboardNavigation";
 import { useFileGridSelectionDrag } from "@/components/file-grid/useFileGridSelectionDrag";
 import { useFileGridLayouts } from "@/components/file-grid/useFileGridLayouts";
@@ -58,6 +60,8 @@ export default function FileGrid() {
   const sortDirection = useFilterStore((state) => state.criteria.sortDirection);
   const setSortBy = useFilterStore((state) => state.setSortBy);
   const setSortDirection = useFilterStore((state) => state.setSortDirection);
+  const canNavigateBack = useLibraryNavigationHistoryStore((state) => state.canGoBack);
+  const canNavigateForward = useLibraryNavigationHistoryStore((state) => state.canGoForward);
   const activeSmartCollection = useNavigationStore((state) => state.activeSmartCollection);
   const viewMode = useSettingsStore((state) => state.libraryViewMode);
   const libraryViewScales = useSettingsStore((state) => state.libraryViewScales);
@@ -221,6 +225,20 @@ export default function FileGrid() {
     setOpenToolbarMenu(null);
   };
 
+  const handleNavigateBack = () => {
+    const entry = useLibraryNavigationHistoryStore.getState().goBack();
+    if (entry) {
+      void navigateToLibraryHistoryEntry(entry);
+    }
+  };
+
+  const handleNavigateForward = () => {
+    const entry = useLibraryNavigationHistoryStore.getState().goForward();
+    if (entry) {
+      void navigateToLibraryHistoryEntry(entry);
+    }
+  };
+
   const { applyCurrentViewScale, handleViewportWheel, resetCurrentViewScale } =
     useFileGridViewScale({
       currentViewScale,
@@ -299,6 +317,8 @@ export default function FileGrid() {
       <FileGridToolbar
         activeFilterCount={activeFilterCount}
         applyCurrentViewScale={applyCurrentViewScale}
+        canNavigateBack={canNavigateBack}
+        canNavigateForward={canNavigateForward}
         currentSortDirectionLabel={currentSortDirectionLabel}
         currentSortFieldLabel={currentSortFieldLabel}
         currentViewModeLabel={currentViewModeLabel}
@@ -306,7 +326,6 @@ export default function FileGrid() {
         currentViewScaleRange={currentViewScaleRange}
         filterMenuButtonRef={filterMenuButtonRef}
         filterMenuRef={filterMenuRef}
-        filteredFileCount={filteredFiles.length}
         handleViewModeChange={handleViewModeChange}
         infoMenuButtonRef={infoMenuButtonRef}
         infoMenuRef={infoMenuRef}
@@ -314,6 +333,8 @@ export default function FileGrid() {
         layoutMenuButtonRef={layoutMenuButtonRef}
         layoutMenuRef={layoutMenuRef}
         libraryVisibleFields={libraryVisibleFields}
+        onNavigateBack={handleNavigateBack}
+        onNavigateForward={handleNavigateForward}
         openToolbarMenu={openToolbarMenu}
         resetCurrentViewScale={resetCurrentViewScale}
         setOpenToolbarMenu={setOpenToolbarMenu}

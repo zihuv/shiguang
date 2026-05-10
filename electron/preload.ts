@@ -66,6 +66,10 @@ contextBridge.exposeInMainWorld("shiguang", {
     setFullscreen: (enabled: boolean) =>
       ipcRenderer.invoke("shiguang:window:set-fullscreen", enabled),
     isFullscreen: () => ipcRenderer.invoke("shiguang:window:is-fullscreen"),
+    minimize: () => ipcRenderer.invoke("shiguang:window:minimize"),
+    toggleMaximize: () => ipcRenderer.invoke("shiguang:window:toggle-maximize"),
+    isMaximized: () => ipcRenderer.invoke("shiguang:window:is-maximized"),
+    close: () => ipcRenderer.invoke("shiguang:window:close"),
   },
   log: (level: string, message: string) => ipcRenderer.invoke("shiguang:log", level, message),
 });
