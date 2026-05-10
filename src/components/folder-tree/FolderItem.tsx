@@ -353,13 +353,14 @@ export function FolderItem({
     dragPosition.targetId === folder.id &&
     !isBeingDragged &&
     !dragPosition.before;
+  const insertLineStyle = { left: `${folderRowPaddingLeft}px`, right: "8px" };
 
   return (
-    <div className="folder-item-wrapper" data-folder-id={folder.id}>
+    <div className="folder-item-wrapper relative" data-folder-id={folder.id}>
       {showInsertLineBefore && (
         <div
-          className="relative my-0.5 h-0.5 rounded-full bg-blue-500"
-          style={{ marginLeft: `${folderRowPaddingLeft}px` }}
+          className="pointer-events-none absolute top-[-3px] z-10 h-0.5 rounded-full bg-blue-500"
+          style={insertLineStyle}
         >
           <div className="absolute left-0 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-blue-500" />
         </div>
@@ -376,7 +377,7 @@ export function FolderItem({
             className={cn(
               appTreeRowClass,
               "h-7 gap-1.5 rounded-lg px-0 py-0 pr-2 text-gray-700 outline-none dark:text-gray-300",
-              isBeingDragged ? "opacity-50" : "cursor-pointer",
+              "cursor-pointer",
               isSelected
                 ? "bg-black/[0.055] text-gray-900 dark:bg-white/[0.075] dark:text-gray-100"
                 : isExternalDragTarget
@@ -547,8 +548,8 @@ export function FolderItem({
 
       {showInsertLineAfter && (
         <div
-          className="relative my-0.5 h-0.5 rounded-full bg-blue-500"
-          style={{ marginLeft: `${folderRowPaddingLeft}px` }}
+          className="pointer-events-none absolute bottom-[-3px] z-10 h-0.5 rounded-full bg-blue-500"
+          style={insertLineStyle}
         >
           <div className="absolute left-0 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-blue-500" />
         </div>
