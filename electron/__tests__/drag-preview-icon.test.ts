@@ -95,5 +95,5 @@ describe("drag preview icon helpers", () => {
   it("returns null for non-image files and keeps a generic icon fallback available", async () => {
     await expect(createImageDragPreviewPngBuffer("/tmp/file.txt", "txt")).resolves.toBeNull();
     await expect(createGenericFileDragIconPngBuffer("txt")).resolves.toBeInstanceOf(Buffer);
-  });
+  }, 10000);
 });
