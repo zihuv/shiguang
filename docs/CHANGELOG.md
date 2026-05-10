@@ -6,6 +6,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- test超时问题
+
 ## [0.5.9] - 2026-05-10
 
 ### Changed
