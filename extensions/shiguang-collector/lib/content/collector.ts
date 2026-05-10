@@ -182,10 +182,12 @@ export function createCollector(siteMetadata: SiteMetadataService | null = null)
         sourceUrl,
         metadata: collectionPayload?.metadata || null,
         missingImageMessage: options.missingImageMessage,
+        notifyOnError: options.notifyOnError,
         notifyOnSuccess: options.notifyOnSuccess,
         successMessage: options.successMessage,
         folderId: options.folderId,
         targetFolderResolved: options.targetFolderResolved === true,
+        waitForCompletion: options.waitForCompletion,
         renderedImageDataUrl,
       },
     });

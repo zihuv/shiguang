@@ -57,10 +57,12 @@ export interface RequestCollectImageOptions {
   referer?: string | null;
   renderedImageDataUrl?: string | null;
   missingImageMessage?: string;
+  notifyOnError?: boolean;
   notifyOnSuccess?: boolean;
   successMessage?: string;
   folderId?: string | number | null;
   targetFolderResolved?: boolean;
+  waitForCompletion?: boolean;
 }
 
 export interface CollectImageResponse {
@@ -69,6 +71,7 @@ export interface CollectImageResponse {
   error?: string;
   result?: unknown;
   deduped?: boolean;
+  queued?: boolean;
 }
 
 export interface Collector {

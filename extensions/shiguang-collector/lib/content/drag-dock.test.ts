@@ -130,6 +130,45 @@ describe("collector drag dock", () => {
     expect(root).toHaveClass("shiguang-drag-dock");
   });
 
+  it("hides immediately after dropping while the send continues in the background", async () => {
+    let resolveSend: (value: { success: boolean }) => void = () => {};
+    const collector = createCollector();
+    collector.requestCollectImage = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveSend = resolve;
+        }),
+    );
+    const { dragDock } = await loadDragDockScript(collector);
+
+    dragDock.showDragDock("https://example.com/image.jpg");
+    await flushPromises();
+
+    const root = document.getElementById("shiguang-drag-dock");
+    const leftTarget = document.querySelector<HTMLElement>(".shiguang-drag-dock__default-target");
+    expect(root).toHaveClass("shiguang-drag-dock--visible");
+    expect(leftTarget).not.toBeNull();
+
+    leftTarget?.dispatchEvent(new Event("drop", { bubbles: true, cancelable: true }));
+
+    expect(collector.requestCollectImage).toHaveBeenCalledWith(
+      "https://example.com/image.jpg",
+      expect.objectContaining({
+        folderId: "",
+        notifyOnError: true,
+        notifyOnSuccess: true,
+        targetFolderResolved: true,
+        waitForCompletion: false,
+      }),
+    );
+    expect(root).not.toHaveClass("shiguang-drag-dock--visible");
+    expect(root).toHaveAttribute("aria-hidden", "true");
+
+    resolveSend({ success: true });
+    await flushPromises();
+    expect(collector.showToast).not.toHaveBeenCalled();
+  });
+
   it("positions the dock to the right of the drag point when there is room", async () => {
     setViewportSize(900, 700);
     const { dragDock } = await loadDragDockScript();

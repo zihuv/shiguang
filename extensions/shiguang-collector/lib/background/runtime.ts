@@ -38,6 +38,7 @@ interface CollectImageOptions extends Omit<ImportTask, "imageUrl" | "folderId"> 
   folderId?: string | number | null;
   targetFolderResolved?: boolean;
   forceTargetFolder?: boolean;
+  waitForCompletion?: boolean;
 }
 
 interface ImportBytesOptions {
@@ -228,7 +229,7 @@ export function initBackground(): void {
     });
   }
 
-  function enqueueImportTask(task: ImportTask): Promise<unknown> {
+  function enqueueImportTask(task: ImportTask, waitForCompletion = true): Promise<unknown> {
     const now = Date.now();
     cleanRecentImportTimes(now);
 
@@ -250,6 +251,15 @@ export function initBackground(): void {
     }
 
     recentImportTimes.set(dedupeKey, now);
+
+    if (!waitForCompletion) {
+      importQueue.push({ ...task, resolve: () => {} });
+      drainImportQueue();
+      return Promise.resolve({
+        success: true,
+        queued: true,
+      });
+    }
 
     return new Promise((resolve) => {
       importQueue.push({ ...task, resolve });
@@ -322,6 +332,7 @@ export function initBackground(): void {
     targetFolderResolved = false,
     forceTargetFolder = false,
     renderedImageDataUrl = null,
+    waitForCompletion = true,
   }: CollectImageOptions): Promise<unknown> {
     if (!imageUrl) {
       if (notifyOnError) {
@@ -344,19 +355,22 @@ export function initBackground(): void {
       return { success: false, cancelled: true, error: target.error || "已取消发送" };
     }
 
-    return enqueueImportTask({
-      tabId,
-      imageUrl,
-      candidateUrls,
-      referer,
-      sourceUrl: sourceUrl || referer || imageUrl,
-      metadata,
-      folderId: target.folderId,
-      renderedImageDataUrl,
-      notifyOnError,
-      notifyOnSuccess,
-      successMessage,
-    });
+    return enqueueImportTask(
+      {
+        tabId,
+        imageUrl,
+        candidateUrls,
+        referer,
+        sourceUrl: sourceUrl || referer || imageUrl,
+        metadata,
+        folderId: target.folderId,
+        renderedImageDataUrl,
+        notifyOnError,
+        notifyOnSuccess,
+        successMessage,
+      },
+      waitForCompletion,
+    );
   }
 
   async function notifyResult(
@@ -570,13 +584,14 @@ export function initBackground(): void {
         missingImageMessage:
           (typeof payload.missingImageMessage === "string" && payload.missingImageMessage) ||
           "未找到可采集的图片",
-        notifyOnError: false,
+        notifyOnError: payload.notifyOnError === true,
         notifyOnSuccess: payload.notifyOnSuccess === true,
         successMessage:
           (typeof payload.successMessage === "string" && payload.successMessage) || "已发送到拾光",
         folderId: normalizeOptionalFolderId(payload.folderId ?? payload.folder_id),
         targetFolderResolved: payload.targetFolderResolved === true,
         forceTargetFolder: payload.forceTargetFolder === true,
+        waitForCompletion: payload.waitForCompletion !== false,
         renderedImageDataUrl:
           typeof payload.renderedImageDataUrl === "string" ? payload.renderedImageDataUrl : null,
       })

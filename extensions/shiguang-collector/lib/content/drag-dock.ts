@@ -43,7 +43,6 @@ export function createDragDock(collector: Collector): DragDock {
   let dragDockHideTimer = 0;
   let dragDockHoverDepth = 0;
   let dragDockVisible = false;
-  let dragDockSending = false;
   let currentDragImageUrl: string | null = null;
   let currentDragReferer: string | null = null;
   let currentDragSourceUrl: string | null = null;
@@ -538,7 +537,7 @@ export function createDragDock(collector: Collector): DragDock {
       syncDragDock();
     });
 
-    card.addEventListener("drop", async (event) => {
+    card.addEventListener("drop", (event) => {
       const imageUrl =
         currentDragImageUrl ||
         collector.extractImageUrlFromDragEvent(event) ||
@@ -558,40 +557,41 @@ export function createDragDock(collector: Collector): DragDock {
         return;
       }
 
-      dragDockSending = true;
       currentDragImageUrl = imageUrl;
-      syncDragDock();
-
-      try {
-        const result = await collector.requestCollectImage(imageUrl, {
-          referer: currentDragReferer || window.location.href,
+      const sendPromise = collector.requestCollectImage(imageUrl, {
+        referer: currentDragReferer || window.location.href,
+        sourceUrl: currentDragSourceUrl || currentDragReferer || window.location.href,
+        collectionPayload: currentDragCollectionPayload || {
+          imageUrl,
+          candidateUrls: [imageUrl],
           sourceUrl: currentDragSourceUrl || currentDragReferer || window.location.href,
-          collectionPayload: currentDragCollectionPayload || {
-            imageUrl,
-            candidateUrls: [imageUrl],
-            sourceUrl: currentDragSourceUrl || currentDragReferer || window.location.href,
-            metadata: null,
-          },
-          missingImageMessage: "未找到可采集的图片",
-          notifyOnSuccess: true,
-          successMessage: folderTarget ? `已发送到 ${folderTarget.name || "拾光"}` : "已发送到拾光",
-          folderId: folderTarget ? (folderTarget.folderId ?? folderTarget.id) : undefined,
-          targetFolderResolved: Boolean(folderTarget),
+          metadata: null,
+        },
+        missingImageMessage: "未找到可采集的图片",
+        notifyOnError: true,
+        notifyOnSuccess: true,
+        successMessage: folderTarget ? `已发送到 ${folderTarget.name || "拾光"}` : "已发送到拾光",
+        folderId: folderTarget ? (folderTarget.folderId ?? folderTarget.id) : undefined,
+        targetFolderResolved: Boolean(folderTarget),
+        waitForCompletion: false,
+      });
+
+      hideDragDock(true);
+
+      void sendPromise
+        .then((result) => {
+          if (result.cancelled) {
+            return;
+          }
+
+          if (!result.success) {
+            throw new Error(result.error || "未知错误");
+          }
+        })
+        .catch((error) => {
+          console.error("拖拽发送到拾光失败:", error);
+          collector.showToast("发送失败: " + collector.getErrorMessage(error), "error", 3600);
         });
-
-        if (result.cancelled) {
-          return;
-        }
-
-        if (!result.success) {
-          throw new Error(result.error || "未知错误");
-        }
-      } catch (error) {
-        console.error("拖拽发送到拾光失败:", error);
-        collector.showToast("发送失败: " + collector.getErrorMessage(error), "error", 3600);
-      } finally {
-        hideDragDock(true);
-      }
     });
 
     (document.body || document.documentElement).appendChild(root);
@@ -621,14 +621,9 @@ export function createDragDock(collector: Collector): DragDock {
 
     root.setAttribute("aria-hidden", dragDockVisible ? "false" : "true");
     root.classList.toggle("shiguang-drag-dock--visible", dragDockVisible);
-    root.classList.toggle("shiguang-drag-dock--interactive", dragDockVisible && !dragDockSending);
+    root.classList.toggle("shiguang-drag-dock--interactive", dragDockVisible);
     root.classList.toggle("shiguang-drag-dock--active", isActive);
     renderFolderTargets(refs);
-
-    if (dragDockSending) {
-      footerText.textContent = "正在发送到拾光...";
-      return;
-    }
 
     if (isActive) {
       const activeTarget = folderTargets.find((folder) => folder.id === activeFolderTargetId);
@@ -684,7 +679,6 @@ export function createDragDock(collector: Collector): DragDock {
     clearDragDockHideTimer();
     dragDockHoverDepth = 0;
     dragDockVisible = true;
-    dragDockSending = false;
     currentDragImageUrl = imageUrl;
     currentDragReferer = referer;
     currentDragSourceUrl = sourceUrl;
@@ -699,16 +693,11 @@ export function createDragDock(collector: Collector): DragDock {
     void loadFolderTargets();
   }
 
-  function hideDragDock(force = false): void {
+  function hideDragDock(_force = false): void {
     clearDragDockHideTimer();
-
-    if (dragDockSending && !force) {
-      return;
-    }
 
     dragDockVisible = false;
     dragDockHoverDepth = 0;
-    dragDockSending = false;
     currentDragImageUrl = null;
     currentDragReferer = null;
     currentDragSourceUrl = null;
