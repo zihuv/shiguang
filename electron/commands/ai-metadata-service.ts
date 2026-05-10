@@ -8,9 +8,9 @@ import {
   createTag,
   getAllTags,
   getFileById,
+  getFileByPath,
   getSetting,
   removeTagFromFile,
-  resolveAvailableTargetPath,
   updateFileMetadata,
   updateFileNameRecord,
 } from "../database";
@@ -88,7 +88,12 @@ export function loadAiConfig(state: AppState): AiMetadataConfig {
   const model = String(endpoint.model ?? parsed.multimodalModel ?? "").trim();
   if (!baseUrl || !apiKey) throw new Error("图片元数据分析配置不完整，请填写 Base URL 和 API Key");
   if (!model) throw new Error("图片元数据分析配置不完整，请填写模型");
-  return { baseUrl, apiKey, model, analysis: resolveAiMetadataAnalysisConfig(endpoint.analysis) };
+  return {
+    baseUrl,
+    apiKey,
+    model,
+    analysis: resolveAiMetadataAnalysisConfig(endpoint.analysis),
+  };
 }
 
 export function hasEnabledAiMetadataAnalysisFields(state: AppState): boolean {
@@ -320,6 +325,16 @@ async function moveFileWithoutOverwrite(from: string, to: string): Promise<void>
   await fs.rm(from, { force: true });
 }
 
+export function buildAiRenameCandidateName(nextName: string, attempt: number): string {
+  if (attempt === 0) {
+    return nextName;
+  }
+
+  const ext = path.extname(nextName);
+  const stem = path.basename(nextName, ext);
+  return `${stem}_${attempt + 1}${ext}`;
+}
+
 async function moveFileToAiName(
   state: AppState,
   fileId: number,
@@ -327,24 +342,21 @@ async function moveFileToAiName(
   nextName: string,
 ): Promise<void> {
   const targetDir = path.dirname(oldPath);
-  const ext = path.extname(nextName);
-  const stem = path.basename(nextName, ext);
+  const hasConflict = (candidate: string) => {
+    const existing = getFileByPath(state.db, candidate);
+    return fssync.existsSync(candidate) || Boolean(existing && existing.id !== fileId);
+  };
 
-  for (let attempt = 0; attempt < 16; attempt += 1) {
-    const candidateName =
-      attempt === 0 ? nextName : `${stem}_ai_${Date.now().toString(16)}_${attempt}${ext}`;
-    const desiredPath = path.join(targetDir, candidateName);
-    const nextPath = await resolveAvailableTargetPath(
-      state.db,
-      desiredPath,
-      targetDir,
-      fileId,
-      "ai",
-      path.resolve(desiredPath) === path.resolve(oldPath),
-    );
+  for (let attempt = 0; attempt < 256; attempt += 1) {
+    const candidateName = buildAiRenameCandidateName(nextName, attempt);
+    const nextPath = path.join(targetDir, candidateName);
 
     if (path.resolve(nextPath) === path.resolve(oldPath)) {
       return;
+    }
+
+    if (hasConflict(nextPath)) {
+      continue;
     }
 
     try {
