@@ -41,9 +41,7 @@ async function finalizeAiMetadataTask(
     (result) => result.status === "failed" && result.error,
   )?.error;
 
-  if (task.status === "completed") {
-    toast.success(`AI 分析完成：成功 ${task.successCount} 张`);
-  } else if (task.status === "completed_with_errors") {
+  if (task.status === "completed_with_errors") {
     const summary = `AI 分析完成：成功 ${task.successCount} 张，失败 ${task.failureCount} 张`;
     toast.error(firstFailure ? `${summary}。首个错误：${firstFailure}` : summary);
   } else if (task.status === "cancelled") {

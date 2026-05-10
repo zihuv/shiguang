@@ -186,7 +186,7 @@ export default function ImagePreview() {
     const loadingToast = toast.loading("AI 分析中...");
     try {
       await analyzeFileMetadata(currentFile.id);
-      toast.success("AI 分析已完成", { id: loadingToast });
+      toast.dismiss(loadingToast);
     } catch (error) {
       console.error("Failed to analyze file metadata:", error);
       toast.error(formatAiAnalyzeError(error), { id: loadingToast });

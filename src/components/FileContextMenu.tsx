@@ -200,7 +200,7 @@ export default function FileContextMenu({ file, children }: FileContextMenuProps
       const loadingToast = toast.loading("AI 分析中...");
       try {
         await analyzeFileMetadata(analyzableFiles[0].id);
-        toast.success("AI 分析已完成", { id: loadingToast });
+        toast.dismiss(loadingToast);
       } catch (e) {
         console.error("Failed to analyze file metadata:", e);
         toast.error(formatAiAnalyzeError(e), { id: loadingToast });
