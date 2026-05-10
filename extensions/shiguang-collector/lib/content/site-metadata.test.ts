@@ -238,6 +238,91 @@ describe("collector site metadata", () => {
     );
     expect(payload.sourceUrl).toBe("https://www.pixiv.net/artworks/12345678");
     expect(payload.metadata!.provider).toBe("pixiv");
+    expect(payload.metadata!.author).toBe("Pixiv Artist");
+    expect(payload.metadata!.authorUrl).toBe("https://www.pixiv.net/users/42");
+  });
+
+  it("ignores the signed-in account when resolving Pixiv artwork authors", async () => {
+    document.title = "夜明け - pixiv";
+    document.body.innerHTML = `
+      <header>
+        <a href="/users/999">
+          <div class="charcoal-text-ellipsis" title="My Account">My Account</div>
+        </a>
+      </header>
+      <main>
+        <h1>夜明け</h1>
+        <aside>
+          <a href="/users/341433">
+            <div class="charcoal-text-ellipsis text-14" title="Rella">Rella</div>
+          </a>
+        </aside>
+        <img id="target" src="https://i.pximg.net/img-master/img/2025/08/06/18/39/38/133558020_p0_master1200.jpg" />
+      </main>
+    `;
+
+    const resolver = await loadResolver();
+    const payload = resolver.resolveCollectionPayload({
+      target: document.getElementById("target"),
+      imageUrl:
+        "https://i.pximg.net/img-master/img/2025/08/06/18/39/38/133558020_p0_master1200.jpg",
+      pageUrl: "https://www.pixiv.net/artworks/133558020",
+    });
+
+    expect(payload.metadata!.author).toBe("Rella");
+    expect(payload.metadata!.authorUrl).toBe("https://www.pixiv.net/users/341433");
+  });
+
+  it("prefers Pixiv preload metadata for artwork authors", async () => {
+    document.title = "Blue Hour - pixiv";
+    document.body.innerHTML = `
+      <meta id="meta-preload-data" content='{"illust":{"12345678":{"userId":341433,"userName":"Rella","urls":{"original":"https://i.pximg.net/img-original/img/2025/01/01/00/00/00/12345678_p0.png"}}}}' />
+      <header><a href="/users/999">My Account</a></header>
+      <main>
+        <h1>Blue Hour</h1>
+        <img id="target" src="https://i.pximg.net/img-master/img/2025/01/01/00/00/00/12345678_p0_master1200.jpg" />
+      </main>
+    `;
+
+    const resolver = await loadResolver();
+    const payload = resolver.resolveCollectionPayload({
+      target: document.getElementById("target"),
+      imageUrl: "https://i.pximg.net/img-master/img/2025/01/01/00/00/00/12345678_p0_master1200.jpg",
+      pageUrl: "https://www.pixiv.net/artworks/12345678",
+    });
+
+    expect(payload.metadata!.author).toBe("Rella");
+    expect(payload.metadata!.authorUrl).toBe("https://www.pixiv.net/users/341433");
+    expect(payload.candidateUrls[0]).toBe(
+      "https://i.pximg.net/img-original/img/2025/01/01/00/00/00/12345678_p0.png",
+    );
+  });
+
+  it("adds Pixiv original extension fallbacks when preload data is unavailable", async () => {
+    document.title = "Blue Hour - pixiv";
+    document.body.innerHTML = `
+      <a href="https://www.pixiv.net/artworks/12345678">
+        <img id="target" src="https://i.pximg.net/img-master/img/2025/01/01/00/00/00/12345678_p0_master1200.jpg" />
+      </a>
+      <main>
+        <h1>Blue Hour</h1>
+        <aside><a href="/users/42">Pixiv Artist</a></aside>
+      </main>
+    `;
+
+    const resolver = await loadResolver();
+    const payload = resolver.resolveCollectionPayload({
+      target: document.getElementById("target"),
+      imageUrl: "https://i.pximg.net/img-master/img/2025/01/01/00/00/00/12345678_p0_master1200.jpg",
+      pageUrl: "https://www.pixiv.net/artworks/12345678",
+    });
+
+    expect(payload.candidateUrls).toContain(
+      "https://i.pximg.net/img-original/img/2025/01/01/00/00/00/12345678_p0.jpg",
+    );
+    expect(payload.candidateUrls).toContain(
+      "https://i.pximg.net/img-original/img/2025/01/01/00/00/00/12345678_p0.png",
+    );
   });
 
   it("keeps Xiaohongshu page image urls while adding Eagle-style enlarged candidates", async () => {

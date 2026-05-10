@@ -8,6 +8,7 @@ import {
   mergeMetadata,
   normalizeText,
   normalizeUrl,
+  uniqueStrings,
 } from "./site-metadata-utils";
 import type { CollectionContext, CollectionMetadata, ResolvedCollectionPayload } from "../types";
 
@@ -177,6 +178,27 @@ function isArtStationArtworkUrl(url: string): boolean {
 
 function isPixivArtworkUrl(url: string): boolean {
   return urlIncludes(url, String.raw`https?:\/\/(?:www\.)?pixiv\.net\/(?:[^/]+\/)?artworks\/\d+`);
+}
+
+function parsePixivArtworkId(value: unknown): string {
+  const href = normalizeUrl(value);
+  if (!href) {
+    return "";
+  }
+
+  try {
+    const url = new URL(href);
+    const match = url.pathname.match(/\/artworks\/(\d+)/i);
+    return match?.[1] || "";
+  } catch {
+    return "";
+  }
+}
+
+function parsePixivPageIndex(value: unknown): string {
+  const href = normalizeUrl(value);
+  const match = href?.match(/_p(\d+)(?:_[^/.]+)?\.[a-z0-9]+(?:[?#].*)?$/i);
+  return match?.[1] || "";
 }
 
 function isXiaohongshuNoteUrl(url: string): boolean {
@@ -542,22 +564,172 @@ function resolveArtStation(
   };
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function normalizePixivValue(value: unknown): string {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  return normalizeText(value);
+}
+
+function getPixivPreloadAuthor(sourceUrl: string | null): { author: string; authorUrl: string } {
+  const artworkId = parsePixivArtworkId(sourceUrl);
+  const preloadContent =
+    document.querySelector<HTMLMetaElement>("meta#meta-preload-data")?.content || "";
+  if (!artworkId || !preloadContent) {
+    return { author: "", authorUrl: "" };
+  }
+
+  try {
+    const preload = asRecord(JSON.parse(preloadContent));
+    const illusts = asRecord(preload?.illust);
+    const illust = asRecord(illusts?.[artworkId]);
+    const user = asRecord(illust?.user);
+    const userId =
+      normalizePixivValue(illust?.userId) ||
+      normalizePixivValue(illust?.user_id) ||
+      normalizePixivValue(user?.id) ||
+      normalizePixivValue(user?.userId);
+    const author =
+      normalizePixivValue(illust?.userName) ||
+      normalizePixivValue(illust?.user_name) ||
+      normalizePixivValue(user?.name);
+
+    return {
+      author,
+      authorUrl: userId ? `https://www.pixiv.net/users/${userId}` : "",
+    };
+  } catch {
+    return { author: "", authorUrl: "" };
+  }
+}
+
+function getPixivPreloadIllust(sourceUrl: string | null): Record<string, unknown> | null {
+  const artworkId = parsePixivArtworkId(sourceUrl);
+  const preloadContent =
+    document.querySelector<HTMLMetaElement>("meta#meta-preload-data")?.content || "";
+  if (!artworkId || !preloadContent) {
+    return null;
+  }
+
+  try {
+    const preload = asRecord(JSON.parse(preloadContent));
+    const illusts = asRecord(preload?.illust);
+    return asRecord(illusts?.[artworkId]);
+  } catch {
+    return null;
+  }
+}
+
+function getPixivPreloadImageUrls(context: CollectionContext, sourceUrl: string | null): string[] {
+  const illust = getPixivPreloadIllust(sourceUrl);
+  const urls = asRecord(illust?.urls);
+  if (!urls) {
+    return [];
+  }
+
+  const pageIndex = parsePixivPageIndex(context.imageUrl);
+  return [urls.original, urls.regular, urls.small, urls.thumb, urls.mini]
+    .map((url) => normalizeUrl(url, context.pageUrl))
+    .filter((url): url is string => Boolean(url))
+    .map((url) => {
+      if (!pageIndex) {
+        return url;
+      }
+      return url.replace(/_p\d+(?=\.[a-z0-9]+(?:[?#]|$))/i, `_p${pageIndex}`);
+    });
+}
+
+function getPixivOriginalExtensionCandidates(imageUrl: string): string[] {
+  const enhancedUrl = safeEnhanceImageUrl(imageUrl, enhancePixivUrl);
+  const match = enhancedUrl.match(/^(.*_p\d+)\.([a-z0-9]+)([?#].*)?$/i);
+  if (!match || !/\/img-original\//i.test(enhancedUrl)) {
+    return [enhancedUrl];
+  }
+
+  const [, base, extension, suffix = ""] = match;
+  return [extension, "jpg", "png", "jpeg"]
+    .map((item) => item.toLowerCase())
+    .filter((item, index, values) => values.indexOf(item) === index)
+    .map((item) => `${base}.${item}${suffix}`);
+}
+
+function getPixivAuthorText(anchor: HTMLAnchorElement): string {
+  const titledElement = Array.from(anchor.querySelectorAll<HTMLElement>("[title]"))
+    .map((item) => normalizeText(item.getAttribute("title")))
+    .find(Boolean);
+  return titledElement || normalizeText(anchor.textContent || anchor.getAttribute("title") || "");
+}
+
+function getPixivDomAuthor(context: CollectionContext): { author: string; authorUrl: string } {
+  const candidates = Array.from(document.querySelectorAll<HTMLAnchorElement>("a[href*='/users/']"))
+    .map((anchor) => {
+      const href = normalizeUrl(anchor.getAttribute("href") || anchor.href, context.pageUrl) || "";
+      const author = getPixivAuthorText(anchor);
+      if (!author || !/\/users\/\d+/i.test(href)) {
+        return null;
+      }
+
+      if (anchor.closest("header, nav, [role='banner']")) {
+        return null;
+      }
+
+      let score = 0;
+      if (anchor.closest("aside")) {
+        score += 40;
+      }
+      if (anchor.closest("main, article")) {
+        score += 25;
+      }
+      if (anchor.querySelector("[title]")) {
+        score += 10;
+      }
+
+      const targetElement = getElement(context.target);
+      const targetContainer =
+        targetElement?.closest("article, section, figure, li, [role='listitem']") || null;
+      if (targetContainer?.contains(anchor)) {
+        score += 30;
+      }
+
+      return { author, authorUrl: href, score };
+    })
+    .filter((item): item is { author: string; authorUrl: string; score: number } => Boolean(item))
+    .sort((left, right) => right.score - left.score);
+
+  const best = candidates[0];
+  return best ? { author: best.author, authorUrl: best.authorUrl } : { author: "", authorUrl: "" };
+}
+
 function resolvePixiv(
   context: CollectionContext,
   genericMetadata: CollectionMetadata,
 ): ResolvedCollectionPayload {
   const sourceUrl = getSourceUrl(context, isPixivArtworkUrl);
   const title = cleanTitle(firstText(["h1", "figcaption", "main h2"]) || document.title);
+  const preloadAuthor = getPixivPreloadAuthor(sourceUrl);
+  const domAuthor = preloadAuthor.author ? preloadAuthor : getPixivDomAuthor(context);
+  const candidateUrls = uniqueStrings([
+    ...getPixivPreloadImageUrls(context, sourceUrl),
+    ...getPixivOriginalExtensionCandidates(context.imageUrl),
+  ]);
 
   return {
-    imageUrl: safeEnhanceImageUrl(context.imageUrl, enhancePixivUrl),
+    imageUrl: candidateUrls[0] || safeEnhanceImageUrl(context.imageUrl, enhancePixivUrl),
+    candidateUrls,
     sourceUrl: sourceUrl || context.pageUrl,
     metadata: mergeMetadata(genericMetadata, {
       provider: "pixiv",
       canonicalUrl: sourceUrl || getCanonicalUrl(),
       title,
       description: getMetaContent("meta[property='og:description']"),
-      author: firstText(["a[href*='/users/']", "aside h2", "main h2"]),
+      author: domAuthor.author,
+      authorUrl: domAuthor.authorUrl,
       tags: Array.from(document.querySelectorAll("a[href*='/tags/']"))
         .map((item) => item.textContent)
         .filter(Boolean),
@@ -677,6 +849,7 @@ export const internals = {
   isBehanceProjectUrl,
   isDribbbleShotUrl,
   isPinterestPinUrl,
+  parsePixivArtworkId,
   isPixivArtworkUrl,
   parseFlickrPhotoId,
   parsePexelsPhotoId,

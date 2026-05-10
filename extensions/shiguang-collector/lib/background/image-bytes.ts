@@ -41,6 +41,14 @@ export function shouldUseFrameImageFetch(imageUrl: string): boolean {
   return isPixivImageUrl(imageUrl);
 }
 
+export function shouldUsePageImageFetch(imageUrl: string): boolean {
+  return !isPixivImageUrl(imageUrl);
+}
+
+export function isImageNotFoundError(error: unknown): boolean {
+  return error instanceof Error && /^HTTP 404(?:\s|$)/.test(error.message);
+}
+
 export function extensionFromContentType(contentType: unknown): string {
   const mime = String(contentType || "")
     .split(";")[0]
@@ -355,19 +363,27 @@ async function resolveImageBytesFromUrl(
   try {
     return await fetchImageBytesFromBrowser(imageUrl);
   } catch (browserFetchError) {
+    if (shouldUseFrameImageFetch(imageUrl)) {
+      if (isImageNotFoundError(browserFetchError)) {
+        throw browserFetchError;
+      }
+
+      try {
+        return await fetchImageBytesViaFrame(tabId, imageUrl, deps);
+      } catch (frameFetchError) {
+        throw new Error(
+          `浏览器侧取图失败：${getErrorMessage(browserFetchError)}；嵌入页面取图失败：${getErrorMessage(frameFetchError)}`,
+        );
+      }
+    }
+
+    if (!shouldUsePageImageFetch(imageUrl)) {
+      throw browserFetchError;
+    }
+
     try {
       return await fetchImageBytesFromPage(tabId, imageUrl);
     } catch (pageFetchError) {
-      if (shouldUseFrameImageFetch(imageUrl)) {
-        try {
-          return await fetchImageBytesViaFrame(tabId, imageUrl, deps);
-        } catch (frameFetchError) {
-          throw new Error(
-            `浏览器侧取图失败：${getErrorMessage(browserFetchError)}；页面上下文取图失败：${getErrorMessage(pageFetchError)}；嵌入页面取图失败：${getErrorMessage(frameFetchError)}`,
-          );
-        }
-      }
-
       throw new Error(
         `浏览器侧取图失败：${getErrorMessage(browserFetchError)}；页面上下文取图失败：${getErrorMessage(pageFetchError)}`,
       );
