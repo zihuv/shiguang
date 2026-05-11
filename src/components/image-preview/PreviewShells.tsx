@@ -16,9 +16,11 @@ import { OVERLAY_BUTTON_CLASS, OVERLAY_CHIP_CLASS } from "./constants";
 import {
   ChevronLeft,
   ChevronRight,
+  FastForward,
   Maximize2,
   Minimize2,
   RotateCcw,
+  Rewind,
   Scan,
   X,
   ZoomIn,
@@ -51,6 +53,7 @@ interface FullscreenPreviewShellProps extends PreviewViewportProps {
   canTransformImage: boolean;
   previewType: string;
   isFitMode: boolean;
+  useVideoSeekNavigation?: boolean;
   onZoomOut: () => void;
   onZoomIn: () => void;
   onFitToView: () => void;
@@ -125,6 +128,7 @@ export function FullscreenPreviewShell({
   canTransformImage,
   previewType,
   isFitMode,
+  useVideoSeekNavigation = false,
   onZoomOut,
   onZoomIn,
   onFitToView,
@@ -230,23 +234,33 @@ export function FullscreenPreviewShell({
               </button>
             </div>
 
-            {totalFiles > 1 && (
+            {(totalFiles > 1 || useVideoSeekNavigation) && (
               <>
                 <button
                   onClick={onGoPrev}
-                  disabled={!canGoPrev}
+                  disabled={!useVideoSeekNavigation && !canGoPrev}
                   className={`${OVERLAY_BUTTON_CLASS} ${sideControlsClassName} absolute left-4 top-1/2 z-20 -translate-y-1/2`}
-                  title="上一张"
+                  title={useVideoSeekNavigation ? "后退 5 秒" : "上一张"}
+                  aria-label={useVideoSeekNavigation ? "后退 5 秒" : "上一张"}
                 >
-                  <ChevronLeft className="h-5 w-5" />
+                  {useVideoSeekNavigation ? (
+                    <Rewind className="h-5 w-5" />
+                  ) : (
+                    <ChevronLeft className="h-5 w-5" />
+                  )}
                 </button>
                 <button
                   onClick={onGoNext}
-                  disabled={!canGoNext}
+                  disabled={!useVideoSeekNavigation && !canGoNext}
                   className={`${OVERLAY_BUTTON_CLASS} ${sideControlsClassName} absolute right-4 top-1/2 z-20 -translate-y-1/2`}
-                  title="下一张"
+                  title={useVideoSeekNavigation ? "前进 5 秒" : "下一张"}
+                  aria-label={useVideoSeekNavigation ? "前进 5 秒" : "下一张"}
                 >
-                  <ChevronRight className="h-5 w-5" />
+                  {useVideoSeekNavigation ? (
+                    <FastForward className="h-5 w-5" />
+                  ) : (
+                    <ChevronRight className="h-5 w-5" />
+                  )}
                 </button>
               </>
             )}

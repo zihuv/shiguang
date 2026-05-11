@@ -19,7 +19,12 @@ import {
   FullscreenPreviewShell,
   StandardPreviewShell,
 } from "@/components/image-preview/PreviewShells";
-import { VideoPlayer, type VideoPlaybackSnapshot } from "@/components/video/VideoPlayer";
+import {
+  VideoPlayer,
+  type VideoPlaybackSnapshot,
+  type VideoSeekRequest,
+} from "@/components/video/VideoPlayer";
+import { SKIP_SECONDS } from "@/components/video/videoPlayerModel";
 import { usePreviewSource } from "@/components/image-preview/usePreviewSource";
 import { usePreviewZoomPan } from "@/components/image-preview/usePreviewZoomPan";
 import { getErrorMessage } from "@/services/desktop/core";
@@ -112,6 +117,10 @@ export default function ImagePreview() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [imageTransform, setImageTransform] =
     useState<ImageTransformState>(DEFAULT_IMAGE_TRANSFORM);
+  const [videoSeekRequest, setVideoSeekRequest] = useState<VideoSeekRequest | null>(null);
+  const [videoPlaybackActivatedKeys, setVideoPlaybackActivatedKeys] = useState<
+    Record<string, boolean>
+  >({});
 
   const lastMenuActionRef = useRef<{ key: string; timestamp: number } | null>(null);
   const persistedDimensionsRef = useRef<Record<number, string>>({});
@@ -125,6 +134,12 @@ export default function ImagePreview() {
   const currentFile = previewFiles[previewIndex];
   const previewType = currentFile ? getFilePreviewMode(currentFile.ext) : "none";
   const isVideo = currentFile ? isVideoFile(currentFile.ext) : false;
+  const currentVideoKey = currentFile && isVideo ? getVideoPlaybackSnapshotKey(currentFile) : null;
+  const currentVideoSnapshot = currentVideoKey
+    ? videoPlaybackSnapshotsRef.current[currentVideoKey]
+    : undefined;
+  const isVideoSeekNavigationActive =
+    isFullscreen && Boolean(currentVideoKey && videoPlaybackActivatedKeys[currentVideoKey]);
   const isImageLike = previewType === "image" || previewType === "thumbnail";
   const canAnalyzeWithAi = currentFile ? canAnalyzeImageMetadata(currentFile.ext) : false;
   const {
@@ -206,6 +221,19 @@ export default function ImagePreview() {
         delete videoPlaybackSnapshotsRef.current[snapshotKey];
       }
     }
+    setVideoPlaybackActivatedKeys((current) => {
+      let changed = false;
+      const next = { ...current };
+
+      for (const snapshotKey of Object.keys(next)) {
+        if (!activeSnapshotKeys.has(snapshotKey)) {
+          delete next[snapshotKey];
+          changed = true;
+        }
+      }
+
+      return changed ? next : current;
+    });
   }, [previewFiles]);
 
   useEffect(() => {
@@ -242,6 +270,41 @@ export default function ImagePreview() {
     },
     [currentFile],
   );
+
+  const handleVideoUserPlaybackStart = useCallback(() => {
+    if (!currentVideoKey) {
+      return;
+    }
+
+    setVideoPlaybackActivatedKeys((current) =>
+      current[currentVideoKey] ? current : { ...current, [currentVideoKey]: true },
+    );
+  }, [currentVideoKey]);
+
+  const skipCurrentVideoBy = useCallback((offset: number) => {
+    setVideoSeekRequest((current) => ({
+      id: (current?.id ?? 0) + 1,
+      offset,
+    }));
+  }, []);
+
+  const handleFullscreenPrev = useCallback(() => {
+    if (isVideoSeekNavigationActive) {
+      skipCurrentVideoBy(-SKIP_SECONDS);
+      return;
+    }
+
+    goToPrev();
+  }, [goToPrev, isVideoSeekNavigationActive, skipCurrentVideoBy]);
+
+  const handleFullscreenNext = useCallback(() => {
+    if (isVideoSeekNavigationActive) {
+      skipCurrentVideoBy(SKIP_SECONDS);
+      return;
+    }
+
+    goToNext();
+  }, [goToNext, isVideoSeekNavigationActive, skipCurrentVideoBy]);
 
   const setPreviewFullscreen = useCallback(async (enabled: boolean) => {
     if (enabled) {
@@ -365,10 +428,18 @@ export default function ImagePreview() {
           }
           break;
         case "ArrowLeft":
-          goToPrev();
+          if (isVideoSeekNavigationActive) {
+            skipCurrentVideoBy(-SKIP_SECONDS);
+          } else {
+            goToPrev();
+          }
           break;
         case "ArrowRight":
-          goToNext();
+          if (isVideoSeekNavigationActive) {
+            skipCurrentVideoBy(SKIP_SECONDS);
+          } else {
+            goToNext();
+          }
           break;
         case "f":
         case "F":
@@ -386,9 +457,11 @@ export default function ImagePreview() {
     goToNext,
     goToPrev,
     isFullscreen,
+    isVideoSeekNavigationActive,
     previewMode,
     previewType,
     setPreviewFullscreen,
+    skipCurrentVideoBy,
   ]);
 
   const flatFolders = flattenFolders(folders);
@@ -552,9 +625,6 @@ export default function ImagePreview() {
   const canGoPrev = previewIndex > 0;
   const canGoNext = previewIndex < totalFiles - 1;
   const canTransformImage = supportsZoom && Boolean(imageSrc) && !imageError;
-  const currentVideoSnapshot = currentFile
-    ? videoPlaybackSnapshotsRef.current[getVideoPlaybackSnapshotKey(currentFile)]
-    : undefined;
   const imageNaturalWidth =
     currentFile.width > 0
       ? currentFile.width
@@ -634,6 +704,8 @@ export default function ImagePreview() {
           isFullscreen={isFullscreen}
           onPlaybackSnapshotChange={handleVideoPlaybackSnapshotChange}
           onToggleFullscreen={toggleFullscreen}
+          onUserPlaybackStart={handleVideoUserPlaybackStart}
+          seekRequest={videoSeekRequest}
           className={`max-h-full bg-black ${
             isFullscreen ? "h-full w-full max-w-full" : "w-full max-w-5xl rounded-lg shadow-lg"
           }`}
@@ -741,8 +813,9 @@ export default function ImagePreview() {
         onFitToView={handleFitToView}
         onRotateLeft={handleRotateLeft}
         onToggleFullscreen={toggleFullscreen}
-        onGoPrev={goToPrev}
-        onGoNext={goToNext}
+        onGoPrev={handleFullscreenPrev}
+        onGoNext={handleFullscreenNext}
+        useVideoSeekNavigation={isVideoSeekNavigationActive}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}

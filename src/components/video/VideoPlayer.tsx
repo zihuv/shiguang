@@ -1,4 +1,5 @@
 import {
+  Check,
   FastForward,
   FileWarning,
   Maximize2,
@@ -43,6 +44,11 @@ export interface VideoPlaybackSnapshot {
   volume: number;
 }
 
+export interface VideoSeekRequest {
+  id: number;
+  offset: number;
+}
+
 interface VideoPlayerProps {
   autoPlay?: boolean;
   className?: string;
@@ -56,7 +62,9 @@ interface VideoPlayerProps {
   isFullscreen?: boolean;
   onPlaybackSnapshotChange?: (snapshot: VideoPlaybackSnapshot) => void;
   onToggleFullscreen?: () => void;
+  onUserPlaybackStart?: () => void;
   poster?: string;
+  seekRequest?: VideoSeekRequest | null;
   src: string;
   variant?: VideoPlayerVariant;
 }
@@ -74,7 +82,9 @@ export function VideoPlayer({
   isFullscreen = false,
   onPlaybackSnapshotChange,
   onToggleFullscreen,
+  onUserPlaybackStart,
   poster,
+  seekRequest,
   src,
   variant = "preview",
 }: VideoPlayerProps) {
@@ -84,6 +94,7 @@ export function VideoPlayer({
   const hoverCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const hoverPreviewTimerRef = useRef<number | null>(null);
   const hoverPreviewTargetRef = useRef<number | null>(null);
+  const playbackRateMenuRef = useRef<HTMLDivElement | null>(null);
   const latestDurationRef = useRef(initialDuration);
   const onPlaybackSnapshotChangeRef = useRef(onPlaybackSnapshotChange);
   const initialPlaybackSourceRef = useRef(src);
@@ -120,6 +131,7 @@ export function VideoPlayer({
   const [hasVideoError, setHasVideoError] = useState(false);
   const [isHoverPreviewMounted, setIsHoverPreviewMounted] = useState(false);
   const [isEditingTime, setIsEditingTime] = useState(false);
+  const [isPlaybackRateMenuOpen, setIsPlaybackRateMenuOpen] = useState(false);
   const [timeInputValue, setTimeInputValue] = useState(() =>
     String(Math.floor(initialCurrentTime)),
   );
@@ -181,9 +193,28 @@ export function VideoPlayer({
     setVolume(initialPlaybackState.volume);
     setHasVideoError(false);
     setIsEditingTime(false);
+    setIsPlaybackRateMenuOpen(false);
     setTimeInputValue(String(Math.floor(initialPlaybackState.currentTime)));
     setHoverState({ active: false, left: 0, time: 0, thumbnailSrc: "" });
   }, [src]);
+
+  useEffect(() => {
+    if (!isPlaybackRateMenuOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (target && playbackRateMenuRef.current?.contains(target)) {
+        return;
+      }
+
+      setIsPlaybackRateMenuOpen(false);
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [isPlaybackRateMenuOpen]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -314,6 +345,7 @@ export function VideoPlayer({
     }
 
     if (video.paused) {
+      onUserPlaybackStart?.();
       void video.play().catch((error) => {
         console.error("Failed to play video:", error);
       });
@@ -321,7 +353,7 @@ export function VideoPlayer({
     }
 
     video.pause();
-  }, []);
+  }, [onUserPlaybackStart]);
 
   const seekTo = useCallback(
     (nextTime: number) => {
@@ -349,6 +381,14 @@ export function VideoPlayer({
     },
     [seekTo],
   );
+
+  useEffect(() => {
+    if (!seekRequest) {
+      return;
+    }
+
+    skipBy(seekRequest.offset);
+  }, [seekRequest, skipBy]);
 
   const handleScrubStart = useCallback(() => {
     const video = videoRef.current;
@@ -413,6 +453,7 @@ export function VideoPlayer({
       }
 
       setPlaybackRate(nextPlaybackRate);
+      setIsPlaybackRateMenuOpen(false);
       emitPlaybackSnapshot({ playbackRate: nextPlaybackRate });
     },
     [emitPlaybackSnapshot],
@@ -817,22 +858,53 @@ export function VideoPlayer({
                 aria-label="音量"
                 title="音量"
               />
-              <select
-                value={playbackRate}
-                onChange={(event) => setVideoPlaybackRate(Number(event.currentTarget.value))}
-                className={cn(
-                  "rounded-full border border-white/10 bg-white/12 px-2 font-medium text-white outline-none transition hover:bg-white/18",
-                  isDetail ? "h-7 text-[11px]" : "h-7 text-[12px]",
+              <div ref={playbackRateMenuRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsPlaybackRateMenuOpen((current) => !current)}
+                  className={cn(
+                    "flex h-7 min-w-12 items-center justify-center rounded-full bg-white/12 px-2 font-medium text-white outline-none transition hover:bg-white/18",
+                    isDetail ? "text-[11px]" : "text-[12px]",
+                  )}
+                  title="播放速度"
+                  aria-label="播放速度"
+                  aria-haspopup="menu"
+                  aria-expanded={isPlaybackRateMenuOpen}
+                >
+                  {playbackRate}x
+                </button>
+                {isPlaybackRateMenuOpen && (
+                  <div
+                    className="absolute bottom-full right-0 z-30 mb-2 w-28 overflow-hidden rounded-lg bg-neutral-200/95 py-1 text-neutral-900 shadow-[0_14px_28px_rgba(0,0,0,0.3)] backdrop-blur"
+                    role="menu"
+                    aria-label="播放速度"
+                  >
+                    {PLAYBACK_RATES.map((rate) => {
+                      const isSelected = playbackRate === rate;
+                      return (
+                        <button
+                          key={rate}
+                          type="button"
+                          onClick={() => setVideoPlaybackRate(rate)}
+                          className={cn(
+                            "flex h-7 w-full items-center gap-1.5 px-2.5 text-left text-[12px] font-medium transition",
+                            isSelected
+                              ? "bg-blue-600 text-white"
+                              : "text-neutral-900 hover:bg-neutral-300/70",
+                          )}
+                          role="menuitemradio"
+                          aria-checked={isSelected}
+                        >
+                          <span className="flex w-3.5 flex-shrink-0 justify-center">
+                            {isSelected && <Check className="h-3.5 w-3.5 stroke-[3]" />}
+                          </span>
+                          <span>{rate}x</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 )}
-                title="播放速度"
-                aria-label="播放速度"
-              >
-                {PLAYBACK_RATES.map((rate) => (
-                  <option key={rate} value={rate} className="bg-gray-950 text-white">
-                    {rate}x
-                  </option>
-                ))}
-              </select>
+              </div>
               {onToggleFullscreen && (
                 <button
                   type="button"
