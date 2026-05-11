@@ -136,7 +136,7 @@ export function createWindowManager(options: WindowManagerOptions) {
       title: "拾光",
       icon: getAppIconPath(),
       autoHideMenuBar: true,
-      frame: isMac,
+      frame: false,
       titleBarStyle: isMac ? "hiddenInset" : undefined,
       trafficLightPosition: isMac ? { x: 18, y: 18 } : undefined,
       webPreferences: {
