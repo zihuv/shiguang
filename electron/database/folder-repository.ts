@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { and, count, eq, isNotNull, isNull, like, ne, or, sql } from "drizzle-orm";
+import { and, count, eq, inArray, isNotNull, isNull, like, ne, or, sql } from "drizzle-orm";
 import fssync from "node:fs";
 import path from "node:path";
 import { moveDirectoryWithFallback } from "../file-operations";
@@ -178,6 +178,29 @@ export function getFolderTree(db: Database.Database): FolderTreeNode[] {
         left.sortOrder - right.sortOrder || left.name.localeCompare(right.name, "zh-CN"),
     )
     .map(build);
+}
+
+export function getFolderSize(db: Database.Database, id: number): number {
+  const root = getFolderById(db, id);
+  if (!root) {
+    return 0;
+  }
+
+  const folderIds = getAllFolders(db)
+    .filter((folder) => pathHasPrefix(folder.path, root.path))
+    .map((folder) => folder.id);
+  if (folderIds.length === 0) {
+    return 0;
+  }
+
+  const row = getDrizzleDb(db)
+    .select({ total: sql<number>`COALESCE(SUM(${files.size}), 0)` })
+    .from(files)
+    .where(
+      and(inArray(files.folderId, folderIds), isNull(files.deletedAt), isNull(files.missingAt)),
+    )
+    .get();
+  return Number(row?.total ?? 0);
 }
 
 export async function renameFolder(db: Database.Database, id: number, name: string): Promise<void> {

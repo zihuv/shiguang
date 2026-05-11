@@ -15,6 +15,7 @@ import {
 import { AlertTriangle, Check, Folder, RotateCcw, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
+  formatSize,
   getFilePreviewMode,
   getFileSrc,
   getGeneratedThumbnailSrc,
@@ -248,8 +249,10 @@ function isKeyboardShortcutIgnored(target: EventTarget | null) {
 export default function TrashPanel() {
   const trashItems = useTrashStore((state) => state.trashItems);
   const trashCount = useTrashStore((state) => state.trashCount);
+  const trashSize = useTrashStore((state) => state.trashSize);
   const loadTrashItems = useTrashStore((state) => state.loadTrashItems);
   const loadTrashCount = useTrashStore((state) => state.loadTrashCount);
+  const loadTrashSize = useTrashStore((state) => state.loadTrashSize);
   const restoreFiles = useTrashStore((state) => state.restoreFiles);
   const restoreFolders = useTrashStore((state) => state.restoreFolders);
   const permanentDeleteFiles = useTrashStore((state) => state.permanentDeleteFiles);
@@ -263,7 +266,8 @@ export default function TrashPanel() {
   useEffect(() => {
     void loadTrashItems();
     void loadTrashCount();
-  }, [loadTrashCount, loadTrashItems]);
+    void loadTrashSize();
+  }, [loadTrashCount, loadTrashItems, loadTrashSize]);
 
   useEffect(() => {
     const handleSelectAllShortcut = (event: KeyboardEvent) => {
@@ -357,19 +361,15 @@ export default function TrashPanel() {
     });
   };
 
-  const formatFileSize = (bytes: number) => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
-
   return (
     <>
       <div className="flex h-full min-h-0 flex-col bg-white dark:bg-dark-bg">
         <div className="flex items-center justify-between gap-4 px-5 py-4">
           <div className="flex min-w-0 items-baseline gap-2">
             <h2 className="text-[16px] font-semibold text-gray-900 dark:text-gray-100">回收站</h2>
-            <span className="text-[12px] text-gray-400 dark:text-gray-500">{trashCount} 项</span>
+            <span className="text-[12px] text-gray-400 dark:text-gray-500">
+              {trashCount} 项{trashSize !== null ? ` · ${formatSize(trashSize)}` : ""}
+            </span>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -423,7 +423,7 @@ export default function TrashPanel() {
                   item={item}
                   isSelected={selectedKeys.includes(selectionKey(item))}
                   onToggleSelect={() => handleToggleSelect(item)}
-                  formatFileSize={formatFileSize}
+                  formatFileSize={formatSize}
                   formatDate={formatDate}
                 />
               ))}

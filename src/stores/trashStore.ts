@@ -6,6 +6,7 @@ import {
   emptyTrash,
   getTrashCount,
   getTrashItems,
+  getTrashSize,
   permanentDeleteFile,
   permanentDeleteFiles,
   permanentDeleteFolder,
@@ -42,6 +43,7 @@ type UndoAction = FileDeleteUndoAction | FolderDeleteUndoAction;
 interface TrashStore {
   trashItems: TrashItem[];
   trashCount: number;
+  trashSize: number | null;
   undoStack: UndoAction[];
   addFileDeleteToUndoStack: (fileIds: number[]) => Promise<void>;
   addFolderDeleteToUndoStack: (action: {
@@ -55,6 +57,7 @@ interface TrashStore {
   deleteFile: (fileId: number) => Promise<void>;
   deleteFiles: (fileIds: number[]) => Promise<void>;
   loadTrashItems: () => Promise<void>;
+  loadTrashSize: () => Promise<void>;
   restoreFile: (fileId: number) => Promise<void>;
   restoreFiles: (fileIds: number[]) => Promise<void>;
   restoreFolder: (folderId: number) => Promise<void>;
@@ -120,11 +123,13 @@ function notifyRestoreResult(result: RestoreFilesResult, restoredCount: number) 
 async function refreshTrashState(store: TrashStore) {
   await store.loadTrashItems();
   await store.loadTrashCount();
+  await store.loadTrashSize();
 }
 
 export const useTrashStore = create<TrashStore>((set, get) => ({
   trashItems: [],
   trashCount: 0,
+  trashSize: null,
   undoStack: [],
 
   addFileDeleteToUndoStack: async (fileIds) => {
@@ -185,6 +190,7 @@ export const useTrashStore = create<TrashStore>((set, get) => ({
     useSelectionStore.getState().setSelectedFile(null);
     await refreshCurrentLibraryState();
     await get().loadTrashCount();
+    await get().loadTrashSize();
   },
 
   deleteFiles: async (fileIds) => {
@@ -199,6 +205,7 @@ export const useTrashStore = create<TrashStore>((set, get) => ({
     useSelectionStore.getState().setSelectedFile(null);
     await refreshCurrentLibraryState();
     await get().loadTrashCount();
+    await get().loadTrashSize();
   },
 
   loadTrashItems: async () => {
@@ -207,6 +214,15 @@ export const useTrashStore = create<TrashStore>((set, get) => ({
       set({ trashItems: parseTrashItemList(items) });
     } catch (error) {
       console.error("Failed to load trash items:", error);
+    }
+  },
+
+  loadTrashSize: async () => {
+    try {
+      const size = await getTrashSize();
+      set({ trashSize: size });
+    } catch (error) {
+      console.error("Failed to load trash size:", error);
     }
   },
 

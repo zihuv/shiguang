@@ -1,8 +1,9 @@
-import { type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { type FileItem } from "@/stores/fileTypes";
 import { useFolderStore, FolderNode } from "@/stores/folderStore";
 import { useLibraryQueryStore } from "@/stores/libraryQueryStore";
 import { useSelectionStore } from "@/stores/selectionStore";
+import { getFolderSize } from "@/services/desktop/folders";
 import FileTagInput from "@/components/FileTagInput";
 import { formatDateTime, formatSize, findFolderById } from "@/utils";
 import { cn } from "@/lib/utils";
@@ -110,6 +111,26 @@ export default function DetailPanel({ width }: DetailPanelProps) {
 function FolderDetailPanel({ folder, width }: { folder: FolderNode; width: number }) {
   const { folders } = useFolderStore();
   const folderDisplayPath = getFolderDisplayPath(folders, folder.id) ?? folder.name;
+  const [folderSize, setFolderSize] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setFolderSize(null);
+
+    getFolderSize(folder.id)
+      .then((size) => {
+        if (!cancelled) {
+          setFolderSize(size);
+        }
+      })
+      .catch((error: unknown) => {
+        console.error("Failed to load folder size:", error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [folder.id]);
 
   return (
     <div className={`${appPanelClass} flex-shrink-0`} style={{ width }}>
@@ -136,6 +157,13 @@ function FolderDetailPanel({ folder, width }: { folder: FolderNode; width: numbe
           <div className="space-y-1.5">
             <h4 className={appSectionLabelClass}>文件数量</h4>
             <p className={appPanelValueClass}>{folder.fileCount} 个文件</p>
+          </div>
+
+          <div className="space-y-1.5">
+            <h4 className={appSectionLabelClass}>大小</h4>
+            <p className={cn(appPanelValueClass, "min-h-5")}>
+              {folderSize !== null ? formatSize(folderSize) : null}
+            </p>
           </div>
 
           <div className="space-y-1.5">

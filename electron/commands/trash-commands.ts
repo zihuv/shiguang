@@ -4,6 +4,7 @@ import {
   getTrashFiles,
   getTrashFolders,
   getTrashItems,
+  getTrashSize,
   setDeleteMode,
 } from "../database";
 import type { AppState } from "../types";
@@ -75,6 +76,7 @@ export function createTrashCommands(state: AppState): Record<string, CommandHand
     get_delete_mode: () => getDeleteMode(state.db),
     set_delete_mode: (args) => setDeleteMode(state.db, Boolean(args.useTrash ?? args.use_trash)),
     get_trash_count: () => getTrashCount(state.db),
+    get_trash_size: () => getTrashSize(state.db),
     copy_file: async (args, window) =>
       copyOneFile(
         state,

@@ -10,6 +10,7 @@ import {
   getDeleteMode,
   getFolderById,
   getFolderByPath,
+  getFolderSize,
   getFolderTree,
   getPrependFolderSortOrder,
   getIndexPaths,
@@ -43,6 +44,7 @@ import { normalizeFolderName } from "../path-utils";
 export function createFolderCommands(state: AppState): Record<string, CommandHandler> {
   return {
     get_folder_tree: () => getFolderTree(state.db),
+    get_folder_size: (args) => getFolderSize(state.db, numberArg(args, "folderId", "folder_id")),
     init_default_folder: () =>
       getAllFolders(state.db).find((folder) => folder.parent_id === null) ??
       getAllFolders(state.db)[0] ??

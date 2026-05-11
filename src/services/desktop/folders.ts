@@ -6,6 +6,10 @@ export function getFolderTree() {
   return invokeDesktop<FolderNode[]>("get_folder_tree");
 }
 
+export function getFolderSize(folderId: number) {
+  return invokeDesktop<number>("get_folder_size", { folderId });
+}
+
 export function initDefaultFolder() {
   return invokeDesktop<FolderSummary | null>("init_default_folder");
 }

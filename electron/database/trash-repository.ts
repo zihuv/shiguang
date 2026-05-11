@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import { count, desc, eq, isNotNull, sql } from "drizzle-orm";
 import type { FileRecord, TrashFolderRecord, TrashItemRecord } from "../types";
 import { pathHasPrefix, replacePathPrefix } from "../path-utils";
-import { attachTags, toFileRow } from "./shared";
+import { attachTags, normalizeStoredPath, toFileRow } from "./shared";
 import { getDrizzleDb } from "./client";
 import { files, folderTrashEntries, folders } from "./schema";
 import { getSetting, setSetting } from "./settings-repository";
@@ -171,6 +171,43 @@ export function getTrashCount(db: Database.Database): number {
   const folderCount =
     getDrizzleDb(db).select({ count: count() }).from(folderTrashEntries).get()?.count ?? 0;
   return fileCount + folderCount;
+}
+
+export function getTrashSize(db: Database.Database): number {
+  let total = 0;
+  const countedFileIds = new Set<number>();
+
+  const addRows = (rows: Array<{ id: number; size: number }>) => {
+    for (const row of rows) {
+      if (countedFileIds.has(row.id)) {
+        continue;
+      }
+      countedFileIds.add(row.id);
+      total += row.size;
+    }
+  };
+
+  addRows(
+    getDrizzleDb(db)
+      .select({ id: files.id, size: files.size })
+      .from(files)
+      .where(isNotNull(files.deletedAt))
+      .all(),
+  );
+
+  for (const folder of getTrashFolders(db)) {
+    const folderPathKey = normalizeStoredPath(folder.path);
+    const rows = getDrizzleDb(db)
+      .select({ id: files.id, path: files.path, size: files.size })
+      .from(files)
+      .where(
+        sql`${files.normalizedPath} = ${folderPathKey} OR ${files.normalizedPath} LIKE ${`${folderPathKey}/%`}`,
+      )
+      .all();
+    addRows(rows.filter((row) => pathHasPrefix(row.path, folder.path)));
+  }
+
+  return total;
 }
 
 export function getDeleteMode(db: Database.Database): boolean {

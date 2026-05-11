@@ -118,4 +118,85 @@ describe("trash repository", () => {
 
     db.close();
   });
+
+  it("sums trash size across deleted files and trashed folders", async () => {
+    const Database = await loadDatabaseConstructor();
+    if (!Database) {
+      return;
+    }
+
+    const { createFolderTrashEntry, getTrashSize, openDatabase } = await import("../database");
+    const tempDir = makeTempDir();
+    const libraryDir = path.join(tempDir, "library");
+    const folderPath = path.join(libraryDir, "parent");
+    const childPath = path.join(folderPath, "child.png");
+    const directPath = path.join(libraryDir, "loose.png");
+    const tempFolderPath = path.join(tempDir, "deleted-folders-pending", "folder-trash-parent");
+    const timestamp = "2026-05-11 10:00:00";
+    const db = openDatabase(path.join(tempDir, "shiguang.db"), libraryDir);
+
+    const folderId = db
+      .prepare(
+        `INSERT INTO folders
+          (path, normalized_path, name, parent_id, created_at, is_system, sort_order, deleted_at, sync_id, updated_at)
+         VALUES (?, ?, 'parent', NULL, ?, 0, 0, ?, 'folder_parent_size', ?)
+         RETURNING id`,
+      )
+      .pluck()
+      .get(folderPath, normalizeTestPath(folderPath), timestamp, timestamp, timestamp) as number;
+    createFolderTrashEntry(db, {
+      folderId,
+      tempPath: tempFolderPath,
+      deletedAt: timestamp,
+      fileCount: 1,
+      subfolderCount: 0,
+    });
+
+    db.prepare(
+      `INSERT INTO files (
+        path, normalized_path, name, ext, size, width, height, folder_id, created_at, modified_at, imported_at,
+        rating, description, source_url, dominant_color, color_distribution, thumb_hash,
+        deleted_at, missing_at, sync_id, content_hash, fs_modified_at, updated_at
+      ) VALUES (?, ?, ?, 'png', ?, 100, 100, ?, ?, ?, ?, 0, '', '', '', '[]', '',
+        ?, ?, ?, NULL, ?, ?)`,
+    ).run(
+      childPath,
+      normalizeTestPath(childPath),
+      "child.png",
+      42,
+      folderId,
+      timestamp,
+      timestamp,
+      timestamp,
+      null,
+      timestamp,
+      "file_child_size",
+      timestamp,
+      timestamp,
+    );
+    db.prepare(
+      `INSERT INTO files (
+        path, normalized_path, name, ext, size, width, height, folder_id, created_at, modified_at, imported_at,
+        rating, description, source_url, dominant_color, color_distribution, thumb_hash,
+        deleted_at, missing_at, sync_id, content_hash, fs_modified_at, updated_at
+      ) VALUES (?, ?, ?, 'png', ?, 100, 100, NULL, ?, ?, ?, 0, '', '', '', '[]', '',
+        ?, NULL, ?, NULL, ?, ?)`,
+    ).run(
+      directPath,
+      normalizeTestPath(directPath),
+      "loose.png",
+      58,
+      timestamp,
+      timestamp,
+      timestamp,
+      timestamp,
+      "file_direct_size",
+      timestamp,
+      timestamp,
+    );
+
+    expect(getTrashSize(db)).toBe(100);
+
+    db.close();
+  });
 });

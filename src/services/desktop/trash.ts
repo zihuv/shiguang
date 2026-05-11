@@ -73,3 +73,7 @@ export function setDeleteMode(useTrash: boolean) {
 export function getTrashCount() {
   return invokeDesktop<number>("get_trash_count");
 }
+
+export function getTrashSize() {
+  return invokeDesktop<number>("get_trash_size");
+}
