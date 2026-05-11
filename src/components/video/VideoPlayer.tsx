@@ -12,10 +12,15 @@ import {
 import type { KeyboardEvent, PointerEvent } from "react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-
-const SKIP_SECONDS = 5;
-const HOVER_PREVIEW_DELAY_MS = 90;
-const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
+import {
+  clampTime,
+  clampVolume,
+  formatVideoTime,
+  getProgressPercent,
+  HOVER_PREVIEW_DELAY_MS,
+  PLAYBACK_RATES,
+  SKIP_SECONDS,
+} from "./videoPlayerModel";
 
 type VideoPlayerVariant = "detail" | "preview";
 type VideoFitMode = "contain" | "cover";
@@ -54,31 +59,6 @@ interface VideoPlayerProps {
   poster?: string;
   src: string;
   variant?: VideoPlayerVariant;
-}
-
-function formatVideoTime(value: number) {
-  if (!Number.isFinite(value) || value < 0) {
-    return "0:00";
-  }
-
-  const totalSeconds = Math.floor(value);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-
-  if (hours > 0) {
-    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-  }
-
-  return `${minutes}:${String(seconds).padStart(2, "0")}`;
-}
-
-function clampTime(value: number, duration: number) {
-  if (!Number.isFinite(duration) || duration <= 0) {
-    return Math.max(0, value);
-  }
-
-  return Math.max(0, Math.min(duration, value));
 }
 
 export function VideoPlayer({
@@ -157,11 +137,7 @@ export function VideoPlayer({
   latestDurationRef.current = duration;
 
   const progressPercent = useMemo(() => {
-    if (!Number.isFinite(duration) || duration <= 0) {
-      return 0;
-    }
-
-    return Math.min(100, Math.max(0, (currentTime / duration) * 100));
+    return getProgressPercent(currentTime, duration);
   }, [currentTime, duration]);
 
   const clearHoverPreviewTimer = useCallback(() => {
@@ -414,7 +390,7 @@ export function VideoPlayer({
   const setVideoVolume = useCallback(
     (nextVolume: number) => {
       const video = videoRef.current;
-      const clampedVolume = Math.max(0, Math.min(1, nextVolume));
+      const clampedVolume = clampVolume(nextVolume);
       const nextMuted = clampedVolume <= 0;
 
       if (video) {

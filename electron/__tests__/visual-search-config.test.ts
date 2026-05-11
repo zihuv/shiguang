@@ -32,7 +32,7 @@ describe("visual search embedding config", () => {
     expect(
       isVisualSearchEmbeddingConfigChanged(
         visualSearchSetting({ runtime: { fgclipMaxPatches: 256 } }),
-        visualSearchSetting({ runtime: { fgclipMaxPatches: 512 } }),
+        visualSearchSetting({ runtime: { fgclipMaxPatches: 576 } }),
       ),
     ).toBe(true);
   });
@@ -68,5 +68,12 @@ describe("visual search embedding config", () => {
         resolveVisualSearchConfig(visualSearchSetting({ modelPath: '"/models/a"' })),
       ),
     );
+  });
+
+  it("falls back when fg-clip patch count is not supported", () => {
+    expect(
+      resolveVisualSearchConfig(visualSearchSetting({ runtime: { fgclipMaxPatches: 512 } })).runtime
+        .fgclipMaxPatches,
+    ).toBe(256);
   });
 });

@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { Download, X } from "lucide-react";
 import { VISUAL_MODEL_DOWNLOAD_OPTIONS as MODEL_DOWNLOAD_OPTIONS } from "@/services/desktop/files";
 import { AI_METADATA_FIELDS } from "@/lib/aiMetadataDefaults";
+import { SUPPORTED_FGCLIP_MAX_PATCHES } from "@/shared/visual-search-config";
 import { formatSize } from "@/utils";
 import {
   type AiConfig,
@@ -30,45 +31,24 @@ import { Select, SelectContent, SelectItem } from "@/components/ui/Select";
 import { Switch } from "@/components/ui/Switch";
 import { Textarea } from "@/components/ui/Textarea";
 import { SettingsRow, SettingsSectionBlock, StatusPill } from "./SettingsPrimitives";
+import {
+  AI_METADATA_FIELD_LABELS,
+  DEFAULT_CUSTOM_INTRA_THREADS,
+  getCustomIntraThreadsInputValue,
+  getIntraThreadsMode,
+  getPercent,
+  getVisualModelDownloadCountLabel,
+  parseOptionalPositiveInteger,
+  resolveCustomIntraThreadsValue,
+  RUNTIME_DEFAULT_SELECT_VALUE,
+  THREAD_MODE_AUTO,
+  THREAD_MODE_CUSTOM,
+  VISUAL_SEARCH_DEVICE_OPTIONS,
+  VISUAL_SEARCH_PROVIDER_POLICY_OPTIONS,
+} from "./AiSettingsSection.model";
 
-const RUNTIME_DEFAULT_SELECT_VALUE = "__default__";
-const FGCLIP_MAX_PATCH_OPTIONS = [128, 256, 576, 784, 1024] as const;
-const DEFAULT_CUSTOM_INTRA_THREADS = 4;
-const THREAD_MODE_AUTO = "auto";
-const THREAD_MODE_CUSTOM = "custom";
 const SETTINGS_SELECT_TRIGGER_CLASS_NAME =
   "h-[34px] rounded-[10px] border-transparent bg-black/[0.035] text-[13px] text-gray-800 dark:bg-white/[0.05] dark:text-gray-200";
-const VISUAL_SEARCH_DEVICE_OPTIONS: Array<{
-  value: VisualSearchRuntimeDevice;
-  label: string;
-}> = [
-  { value: "auto", label: "自动" },
-  { value: "gpu", label: "GPU" },
-  { value: "cpu", label: "CPU" },
-];
-const VISUAL_SEARCH_PROVIDER_POLICY_OPTIONS: Array<{
-  value: VisualSearchProviderPolicy;
-  label: string;
-}> = [
-  { value: "interactive", label: "Interactive" },
-  { value: "service", label: "Service" },
-  { value: "auto", label: "Auto" },
-];
-const AI_METADATA_FIELD_LABELS: Record<AiMetadataAnalysisField, string> = {
-  filename: "文件名",
-  tags: "标签",
-  description: "备注",
-  rating: "评价",
-};
-
-function parseOptionalPositiveInteger(value: string): number | null {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return null;
-  }
-  const parsed = Number.parseInt(trimmed, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
 
 interface AiSettingsSectionProps {
   aiConfig: AiConfig;
@@ -274,9 +254,7 @@ export function AiSettingsSection({
   onCancelVisualIndexTask,
 }: AiSettingsSectionProps) {
   const [customIntraThreadsInput, setCustomIntraThreadsInput] = useState(() =>
-    typeof visualSearch.runtime.intraThreads === "number"
-      ? String(visualSearch.runtime.intraThreads)
-      : String(DEFAULT_CUSTOM_INTRA_THREADS),
+    getCustomIntraThreadsInputValue(visualSearch.runtime.intraThreads),
   );
   const [selectedDownloadRepoId, setSelectedDownloadRepoId] = useState<VisualModelDownloadRepoId>(
     "zihuv/fg-clip2-base-onnx",
@@ -296,25 +274,16 @@ export function AiSettingsSection({
   const unindexedCount = pendingCount + failedCount + outdatedCount;
   const isVisualIndexRunning =
     !!visualIndexTask && !TERMINAL_VISUAL_INDEX_TASK_STATUSES.has(visualIndexTask.status);
-  const visualIndexProgress = visualIndexTask?.total
-    ? Math.min(100, Math.round((visualIndexTask.processed / visualIndexTask.total) * 100))
-    : 0;
+  const visualIndexProgress = getPercent(visualIndexTask?.processed, visualIndexTask?.total);
   const visualIndexCountLabel = `${visualIndexTask?.processed ?? 0}/${visualIndexTask?.total ?? 0}`;
   const isVisualModelDownloadRunning =
     !!visualModelDownloadTask &&
     ["queued", "scanning", "downloading"].includes(visualModelDownloadTask.status);
-  const visualModelDownloadProgress =
-    visualModelDownloadTask?.totalBytes && visualModelDownloadTask.totalBytes > 0
-      ? Math.min(
-          100,
-          Math.round(
-            (visualModelDownloadTask.downloadedBytes / visualModelDownloadTask.totalBytes) * 100,
-          ),
-        )
-      : 0;
-  const visualModelDownloadCountLabel = visualModelDownloadTask
-    ? `${visualModelDownloadTask.completedFiles}/${visualModelDownloadTask.totalFiles || 0}`
-    : "0/0";
+  const visualModelDownloadProgress = getPercent(
+    visualModelDownloadTask?.downloadedBytes,
+    visualModelDownloadTask?.totalBytes,
+  );
+  const visualModelDownloadCountLabel = getVisualModelDownloadCountLabel(visualModelDownloadTask);
   const selectedDownloadOption =
     MODEL_DOWNLOAD_OPTIONS.find((option) => option.repoId === selectedDownloadRepoId) ??
     MODEL_DOWNLOAD_OPTIONS[0];
@@ -339,8 +308,7 @@ export function AiSettingsSection({
       : visualIndexTask?.processUnindexedOnly
         ? "正在处理未索引图片"
         : "正在重建视觉索引";
-  const intraThreadsMode =
-    typeof visualSearch.runtime.intraThreads === "number" ? THREAD_MODE_CUSTOM : THREAD_MODE_AUTO;
+  const intraThreadsMode = getIntraThreadsMode(visualSearch.runtime.intraThreads);
 
   const handleIntraThreadsModeChange = (value: string) => {
     if (value === THREAD_MODE_AUTO) {
@@ -348,11 +316,10 @@ export function AiSettingsSection({
       return;
     }
 
-    const fallback =
-      parseOptionalPositiveInteger(customIntraThreadsInput) ??
-      (typeof visualSearch.runtime.intraThreads === "number"
-        ? visualSearch.runtime.intraThreads
-        : DEFAULT_CUSTOM_INTRA_THREADS);
+    const fallback = resolveCustomIntraThreadsValue(
+      customIntraThreadsInput,
+      visualSearch.runtime.intraThreads,
+    );
 
     setCustomIntraThreadsInput(String(fallback));
     onSetVisualSearchRuntimeField("intraThreads", fallback);
@@ -372,11 +339,10 @@ export function AiSettingsSection({
       return;
     }
 
-    const nextValue =
-      parseOptionalPositiveInteger(customIntraThreadsInput) ??
-      (typeof visualSearch.runtime.intraThreads === "number"
-        ? visualSearch.runtime.intraThreads
-        : DEFAULT_CUSTOM_INTRA_THREADS);
+    const nextValue = resolveCustomIntraThreadsValue(
+      customIntraThreadsInput,
+      visualSearch.runtime.intraThreads,
+    );
 
     setCustomIntraThreadsInput(String(nextValue));
     onSetVisualSearchRuntimeField("intraThreads", nextValue);
@@ -693,7 +659,7 @@ export function AiSettingsSection({
               >
                 <SelectContent>
                   <SelectItem value={RUNTIME_DEFAULT_SELECT_VALUE}>默认</SelectItem>
-                  {FGCLIP_MAX_PATCH_OPTIONS.map((value) => (
+                  {SUPPORTED_FGCLIP_MAX_PATCHES.map((value) => (
                     <SelectItem key={value} value={String(value)}>
                       {value}
                     </SelectItem>

@@ -25,7 +25,11 @@ import {
   removeTagFromFile as removeTagFromFileCommand,
 } from "@/services/desktop/tags";
 import { buildFileFilterPayload, hasStructuredFilters } from "@/features/filters/schema";
-import { resolveLibraryQueryFolderId } from "@/stores/libraryQueryModel";
+import {
+  buildLibraryQueryPlan,
+  buildPageScoreSummary,
+  roundVisualSearchDebugScore,
+} from "@/stores/libraryQueryModel";
 import { getErrorMessage } from "@/services/desktop/core";
 import {
   parseFile,
@@ -33,7 +37,6 @@ import {
   type FileItem,
   type PaginatedFilesResponse,
   type SmartCollectionId,
-  type VisualSearchDebugScore,
 } from "@/stores/fileTypes";
 
 interface LibraryPagination {
@@ -185,34 +188,6 @@ function beginFileListLoading(
   });
 }
 
-function roundDebugScore(score: number) {
-  return Number(score.toFixed(6));
-}
-
-function getAscendingPercentile(scores: number[], percentile: number) {
-  const index = Math.max(0, Math.ceil(scores.length * percentile) - 1);
-  return scores[Math.min(index, scores.length - 1)] ?? 0;
-}
-
-function buildPageScoreSummary(debugScores: VisualSearchDebugScore[]) {
-  const scores = debugScores
-    .map((entry) => entry.score)
-    .filter(Number.isFinite)
-    .sort((left, right) => left - right);
-
-  if (!scores.length) {
-    return null;
-  }
-
-  return {
-    count: scores.length,
-    top: scores[scores.length - 1],
-    p90: getAscendingPercentile(scores, 0.9),
-    p50: getAscendingPercentile(scores, 0.5),
-    min: scores[0],
-  };
-}
-
 function logVisualSearchDebugScores(result: PaginatedFilesResponse, naturalLanguageQuery?: string) {
   const query = naturalLanguageQuery?.trim();
   if (!query) {
@@ -242,7 +217,7 @@ function logVisualSearchDebugScores(result: PaginatedFilesResponse, naturalLangu
       rank: index + 1 + (result.page - 1) * result.page_size,
       fileId: entry.fileId,
       name: entry.name,
-      score: roundDebugScore(entry.score),
+      score: roundVisualSearchDebugScore(entry.score),
     })),
   });
   console.table(
@@ -250,7 +225,7 @@ function logVisualSearchDebugScores(result: PaginatedFilesResponse, naturalLangu
       rank: index + 1 + (result.page - 1) * result.page_size,
       fileId: entry.fileId,
       name: entry.name,
-      score: roundDebugScore(entry.score),
+      score: roundVisualSearchDebugScore(entry.score),
     })),
   );
 }
@@ -426,9 +401,6 @@ export const useLibraryQueryStore = create<LibraryQueryStore>((set, get) => ({
   loadFilesInFolder: async (folderId) => {
     const previousFolderId = get().selectedFolderId;
     const shouldClearFiles = previousFolderId !== folderId;
-    const activeSmartCollection = useNavigationStore.getState().activeSmartCollection;
-    const hasSmartCollectionQuery =
-      activeSmartCollection !== null && activeSmartCollection !== "all";
     beginFileListLoading(set, {
       clearFiles: shouldClearFiles,
       selectedFolderId: folderId,
@@ -437,14 +409,22 @@ export const useLibraryQueryStore = create<LibraryQueryStore>((set, get) => ({
       console.error("Failed to persist last selected folder:", error);
     });
 
+    const { searchQuery, imageQueryFile, aiSearchEnabled } = get();
+    const { activeSmartCollection, randomSeed } = useNavigationStore.getState();
     const criteria = useFilterStore.getState().criteria;
-    if (
-      hasStructuredFilters(criteria) ||
-      get().searchQuery.trim() ||
-      get().imageQueryFile ||
-      hasSmartCollectionQuery
-    ) {
-      await get().runCurrentQuery(folderId);
+    const plan = buildLibraryQueryPlan({
+      activeSmartCollection,
+      randomSeed,
+      selectedFolderId: folderId,
+      folderIdOverride: folderId,
+      searchQuery,
+      imageQueryFile,
+      aiSearchEnabled,
+      hasStructuredFilters: hasStructuredFilters(criteria),
+    });
+
+    if (plan.type === "filter") {
+      await get().filterFiles(plan.filter);
       return;
     }
 
@@ -487,43 +467,23 @@ export const useLibraryQueryStore = create<LibraryQueryStore>((set, get) => ({
     const { searchQuery, selectedFolderId, imageQueryFile, aiSearchEnabled } = get();
     const criteria = useFilterStore.getState().criteria;
     const { activeSmartCollection, randomSeed } = useNavigationStore.getState();
-    const hasSmartCollectionQuery =
-      activeSmartCollection !== null && activeSmartCollection !== "all";
-    const folderId = resolveLibraryQueryFolderId({
+    const plan = buildLibraryQueryPlan({
       activeSmartCollection,
+      randomSeed,
       selectedFolderId,
       folderIdOverride,
+      searchQuery,
+      imageQueryFile,
+      aiSearchEnabled,
+      hasStructuredFilters: hasStructuredFilters(criteria),
     });
-    const trimmedSearchQuery = searchQuery.trim();
-    const textQuery = imageQueryFile || !trimmedSearchQuery ? undefined : trimmedSearchQuery;
-    const fuzzyQuery = aiSearchEnabled ? undefined : textQuery;
-    const naturalLanguageQuery = aiSearchEnabled ? textQuery : undefined;
 
-    if (hasStructuredFilters(criteria) || hasSmartCollectionQuery) {
-      await get().filterFiles({
-        query: fuzzyQuery,
-        naturalLanguageQuery,
-        imageQueryFileId: imageQueryFile?.id,
-        folderId,
-        smartView: activeSmartCollection,
-        smartSeed: randomSeed,
-      });
+    if (plan.type === "filter") {
+      await get().filterFiles(plan.filter);
       return;
     }
 
-    if (imageQueryFile || searchQuery.trim()) {
-      await get().filterFiles({
-        query: fuzzyQuery,
-        naturalLanguageQuery,
-        imageQueryFileId: imageQueryFile?.id,
-        folderId,
-        smartView: activeSmartCollection,
-        smartSeed: randomSeed,
-      });
-      return;
-    }
-
-    await get().loadFilesInFolder(folderId);
+    await get().loadFilesInFolder(plan.folderId);
   },
 
   filterFiles: async (filter) => {

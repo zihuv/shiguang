@@ -10,6 +10,18 @@ export type {
   AiMetadataAnalysisField,
   AiMetadataAnalysisFieldConfig,
 } from "@/lib/aiMetadataDefaults";
+export {
+  cloneVisualSearchConfig,
+  DEFAULT_VISUAL_SEARCH_CONFIG,
+  resolveVisualSearchConfig,
+} from "@/shared/visual-search-config";
+export type {
+  VisualSearchConfig,
+  VisualSearchProviderPolicy,
+  VisualSearchRuntimeConfig,
+  VisualSearchRuntimeDevice,
+  VisualSearchRuntimeThreadConfig,
+} from "@/shared/visual-search-config";
 
 export type LibraryViewMode = "grid" | "list" | "adaptive";
 export type LibraryVisibleField = "name" | "ext" | "size" | "dimensions" | "tags";
@@ -61,25 +73,6 @@ export interface AiConfig {
   metadata: AiServiceConfig;
 }
 
-export type VisualSearchRuntimeDevice = "auto" | "cpu" | "gpu";
-export type VisualSearchProviderPolicy = "auto" | "interactive" | "service";
-export type VisualSearchRuntimeThreadConfig = "auto" | number;
-
-export interface VisualSearchRuntimeConfig {
-  device: VisualSearchRuntimeDevice;
-  providerPolicy: VisualSearchProviderPolicy;
-  intraThreads: VisualSearchRuntimeThreadConfig;
-  fgclipMaxPatches: number | null;
-}
-
-export interface VisualSearchConfig {
-  enabled: boolean;
-  modelPath: string;
-  autoVectorizeOnImport: boolean;
-  processUnindexedOnly: boolean;
-  runtime: VisualSearchRuntimeConfig;
-}
-
 export interface PanelLayout {
   sidebarWidth: number;
   detailPanelWidth: number;
@@ -96,19 +89,6 @@ export const DEFAULT_AI_SERVICE_CONFIG: AiServiceConfig = {
 
 export const DEFAULT_AI_CONFIG: AiConfig = {
   metadata: { ...DEFAULT_AI_SERVICE_CONFIG },
-};
-
-export const DEFAULT_VISUAL_SEARCH_CONFIG: VisualSearchConfig = {
-  enabled: false,
-  modelPath: "",
-  autoVectorizeOnImport: false,
-  processUnindexedOnly: true,
-  runtime: {
-    device: "cpu",
-    providerPolicy: "interactive",
-    intraThreads: 4,
-    fgclipMaxPatches: 256,
-  },
 };
 
 export function cloneAiConfig(config: AiConfig): AiConfig {
@@ -131,21 +111,6 @@ export function cloneAiMetadataAnalysisConfig(
   };
 }
 
-export function cloneVisualSearchConfig(config: VisualSearchConfig): VisualSearchConfig {
-  return {
-    enabled: config.enabled,
-    modelPath: config.modelPath,
-    autoVectorizeOnImport: config.autoVectorizeOnImport,
-    processUnindexedOnly: config.processUnindexedOnly,
-    runtime: {
-      device: config.runtime.device,
-      providerPolicy: config.runtime.providerPolicy,
-      intraThreads: config.runtime.intraThreads,
-      fgclipMaxPatches: config.runtime.fgclipMaxPatches,
-    },
-  };
-}
-
 export function clampPreviewTrackpadZoomSpeed(value: number) {
   if (!Number.isFinite(value)) {
     return DEFAULT_PREVIEW_TRACKPAD_ZOOM_SPEED;
@@ -160,55 +125,6 @@ export function clampPreviewTrackpadZoomSpeed(value: number) {
       Math.round(clamped / PREVIEW_TRACKPAD_ZOOM_SPEED_STEP) * PREVIEW_TRACKPAD_ZOOM_SPEED_STEP
     ).toFixed(1),
   );
-}
-
-function resolveOptionalPositiveInteger(value: unknown): number | null {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
-    return null;
-  }
-  const normalized = Math.round(parsed);
-  return normalized > 0 ? normalized : null;
-}
-
-function resolveOptionalFgclipMaxPatches(value: unknown): number | null {
-  if (value === null) {
-    return null;
-  }
-  const normalized = resolveOptionalPositiveInteger(value);
-  if (normalized == null) {
-    return DEFAULT_VISUAL_SEARCH_CONFIG.runtime.fgclipMaxPatches;
-  }
-  return [128, 256, 576, 784, 1024].includes(normalized)
-    ? normalized
-    : DEFAULT_VISUAL_SEARCH_CONFIG.runtime.fgclipMaxPatches;
-}
-
-function resolveVisualSearchRuntimeDevice(value: unknown): VisualSearchRuntimeDevice {
-  if (value === "cpu" || value === "gpu" || value === "auto") {
-    return value;
-  }
-  return DEFAULT_VISUAL_SEARCH_CONFIG.runtime.device;
-}
-
-function resolveVisualSearchProviderPolicy(value: unknown): VisualSearchProviderPolicy {
-  if (value === "auto" || value === "interactive" || value === "service") {
-    return value;
-  }
-  return DEFAULT_VISUAL_SEARCH_CONFIG.runtime.providerPolicy;
-}
-
-function resolveVisualSearchRuntimeThreads(value: unknown): VisualSearchRuntimeThreadConfig {
-  if (typeof value === "string" && value.trim().toLowerCase() === "auto") {
-    return "auto";
-  }
-
-  const normalized = resolveOptionalPositiveInteger(value);
-  if (normalized != null) {
-    return normalized;
-  }
-
-  return DEFAULT_VISUAL_SEARCH_CONFIG.runtime.intraThreads;
 }
 
 export function isLibraryViewMode(value: unknown): value is LibraryViewMode {
@@ -407,32 +323,5 @@ export function resolveAiConfig(value: unknown): AiConfig {
 
   return {
     metadata: resolveServiceConfig(config.metadata, "multimodalModel"),
-  };
-}
-
-export function resolveVisualSearchConfig(value: unknown): VisualSearchConfig {
-  if (!value || typeof value !== "object") {
-    return cloneVisualSearchConfig(DEFAULT_VISUAL_SEARCH_CONFIG);
-  }
-
-  const config = value as Partial<Record<keyof VisualSearchConfig, unknown>>;
-  const runtimeValue =
-    config.runtime && typeof config.runtime === "object"
-      ? (config.runtime as Partial<Record<keyof VisualSearchRuntimeConfig, unknown>>)
-      : null;
-  return {
-    enabled: Boolean(config.enabled),
-    modelPath: typeof config.modelPath === "string" ? config.modelPath : "",
-    autoVectorizeOnImport: Boolean(config.autoVectorizeOnImport),
-    processUnindexedOnly:
-      typeof config.processUnindexedOnly === "boolean"
-        ? config.processUnindexedOnly
-        : DEFAULT_VISUAL_SEARCH_CONFIG.processUnindexedOnly,
-    runtime: {
-      device: resolveVisualSearchRuntimeDevice(runtimeValue?.device),
-      providerPolicy: resolveVisualSearchProviderPolicy(runtimeValue?.providerPolicy),
-      intraThreads: resolveVisualSearchRuntimeThreads(runtimeValue?.intraThreads),
-      fgclipMaxPatches: resolveOptionalFgclipMaxPatches(runtimeValue?.fgclipMaxPatches),
-    },
   };
 }
