@@ -62,6 +62,7 @@ export interface RequestCollectImageOptions {
   successMessage?: string;
   folderId?: string | number | null;
   targetFolderResolved?: boolean;
+  forceTargetFolder?: boolean;
   waitForCompletion?: boolean;
 }
 

@@ -109,7 +109,10 @@ export function initXiaohongshu(collector: Collector): void {
     menuItem.textContent = "发送到拾光";
 
     menuItem.addEventListener("click", async (event) => {
+      event.preventDefault();
       event.stopPropagation();
+      event.stopImmediatePropagation();
+      closeMenu(menuContainer);
 
       let imageUrl = collector.getLastImageUrl();
       let imageTarget: EventTarget | Node | null = collector.getLastRightClickTarget();
@@ -164,7 +167,10 @@ export function initXiaohongshu(collector: Collector): void {
         const result = await collector.requestCollectImage(imageUrl, {
           sourceUrl,
           target: imageTarget,
+          forceTargetFolder: true,
           missingImageMessage: "未找到图片，请右键点击图片后重试",
+          notifyOnSuccess: true,
+          successMessage: "已发送到拾光",
         });
 
         if (result.cancelled) {
@@ -198,6 +204,10 @@ export function initXiaohongshu(collector: Collector): void {
 
     menuContainer.insertBefore(divider, menuContainer.firstChild);
     menuContainer.insertBefore(menuItem, divider);
+  }
+
+  function closeMenu(menuContainer: HTMLElement): void {
+    menuContainer.remove();
   }
 
   function handleXiaohongshuMenu() {

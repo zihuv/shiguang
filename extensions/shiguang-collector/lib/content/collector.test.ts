@@ -116,4 +116,28 @@ describe("collector rendered image reuse", () => {
       }),
     );
   });
+
+  it("forwards forced target folder selection to the background collector", async () => {
+    document.body.innerHTML = `<img id="target" src="https://sns-webpic-qc.xhscdn.com/image-webp" />`;
+    const image = document.getElementById("target") as HTMLImageElement;
+    markImageLoaded(image);
+    HTMLCanvasElement.prototype.getContext = vi.fn(() => null) as never;
+
+    const collector = createCollector();
+    const result = await collector.requestCollectImage(image.src, {
+      target: image,
+      forceTargetFolder: true,
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "collectImage",
+        payload: expect.objectContaining({
+          imageUrl: image.src,
+          forceTargetFolder: true,
+        }),
+      }),
+    );
+  });
 });

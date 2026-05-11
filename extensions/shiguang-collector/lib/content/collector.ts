@@ -187,6 +187,7 @@ export function createCollector(siteMetadata: SiteMetadataService | null = null)
         successMessage: options.successMessage,
         folderId: options.folderId,
         targetFolderResolved: options.targetFolderResolved === true,
+        forceTargetFolder: options.forceTargetFolder === true,
         waitForCompletion: options.waitForCompletion,
         renderedImageDataUrl,
       },
