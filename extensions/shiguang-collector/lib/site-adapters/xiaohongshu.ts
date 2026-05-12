@@ -109,10 +109,7 @@ export function initXiaohongshu(collector: Collector): void {
     menuItem.textContent = "发送到拾光";
 
     menuItem.addEventListener("click", async (event) => {
-      event.preventDefault();
       event.stopPropagation();
-      event.stopImmediatePropagation();
-      closeMenu(menuContainer);
 
       let imageUrl = collector.getLastImageUrl();
       let imageTarget: EventTarget | Node | null = collector.getLastRightClickTarget();
@@ -204,10 +201,6 @@ export function initXiaohongshu(collector: Collector): void {
 
     menuContainer.insertBefore(divider, menuContainer.firstChild);
     menuContainer.insertBefore(menuItem, divider);
-  }
-
-  function closeMenu(menuContainer: HTMLElement): void {
-    menuContainer.remove();
   }
 
   function handleXiaohongshuMenu() {
