@@ -279,7 +279,7 @@ export function FileGridToolbar({
   };
 
   return (
-    <div className="app-main-chrome app-drag-region relative z-20 flex flex-shrink-0 flex-col justify-center bg-transparent px-3">
+    <div className="app-main-chrome app-drag-region relative z-20 flex flex-shrink-0 flex-col bg-transparent px-3 pb-0.5 pt-1.5">
       <div className="flex h-8 items-center gap-2">
         <div className="app-no-drag flex items-center gap-0.5">
           <button
@@ -615,7 +615,7 @@ export function FileGridToolbar({
       </div>
 
       {isFilterPanelOpen && (
-        <div ref={filterMenuRef} className="app-no-drag pb-2 pt-2">
+        <div ref={filterMenuRef} className="app-no-drag pt-0.5">
           <FilterPanel />
         </div>
       )}

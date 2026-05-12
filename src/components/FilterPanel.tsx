@@ -159,7 +159,7 @@ export default function FilterPanel() {
         : `${criteria.tagIds.length} 个标签`;
 
   return (
-    <div className="flex w-full flex-col gap-2 pb-1 text-gray-900 dark:text-gray-100">
+    <div className="flex w-full flex-col gap-1 text-gray-900 dark:text-gray-100">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
           <div ref={colorMenuRef} className="relative">
@@ -504,12 +504,12 @@ function InlineField({
       title={label}
       aria-label={label}
       className={cn(
-        "inline-flex min-h-8 items-center gap-2 rounded-lg px-2 py-0.5 transition-colors",
+        "inline-flex min-h-8 items-center gap-1.5 rounded-lg px-2 transition-colors",
         active ? "bg-gray-100 dark:bg-white/[0.08]" : "bg-gray-100/60 dark:bg-white/[0.04]",
       )}
     >
       <Icon className="h-3.5 w-3.5 shrink-0 text-gray-400" />
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-1.5">
         {Array.isArray(children)
           ? children.map((child, index) =>
               typeof child === "string" ? (
