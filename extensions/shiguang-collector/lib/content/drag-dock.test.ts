@@ -602,6 +602,45 @@ describe("collector drag dock", () => {
     expect(root).toHaveTextContent("设计");
   });
 
+  it("updates the active folder target without rebuilding the folder list", async () => {
+    setupDom(
+      {},
+      {
+        success: true,
+        default_folder_id: 1,
+        folders: [
+          {
+            id: 1,
+            name: "浏览器采集",
+            parentId: null,
+            children: [{ id: 12, name: "灵感", parentId: 1, children: [] }],
+          },
+          { id: 42, name: "设计", parentId: null, children: [] },
+        ],
+      },
+    );
+    const { dragDock } = await loadDragDockScript();
+
+    dragDock.showDragDock("https://example.com/image.jpg");
+    await flushPromises();
+
+    const folderList = document.querySelector<HTMLElement>('[data-shiguang-folder-list="true"]')!;
+    const inspirationTarget = folderList.querySelector<HTMLElement>(
+      '[data-shiguang-folder-target-id="12"]',
+    )!;
+    const designTarget = folderList.querySelector<HTMLElement>(
+      '[data-shiguang-folder-target-id="42"]',
+    )!;
+
+    designTarget.dispatchEvent(new Event("dragover", { bubbles: true, cancelable: true }));
+
+    expect(folderList.querySelector('[data-shiguang-folder-target-id="12"]')).toBe(
+      inspirationTarget,
+    );
+    expect(folderList.querySelector('[data-shiguang-folder-target-id="42"]')).toBe(designTarget);
+    expect(designTarget).toHaveClass("is-active");
+  });
+
   it("passes the dropped folder id to image collection", async () => {
     setupDom(
       {},

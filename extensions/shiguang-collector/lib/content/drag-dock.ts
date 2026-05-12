@@ -308,6 +308,22 @@ export function createDragDock(collector: Collector): DragDock {
     return folderTargets.find((folder) => folder.id === id) || null;
   }
 
+  function syncFolderTargetActiveState(refs: DragDockRefs): void {
+    refs.leftDropTarget.classList.toggle(
+      "is-active",
+      activeFolderTargetId === DEFAULT_FOLDER_TARGET_ID,
+    );
+
+    refs.folderList
+      .querySelectorAll<HTMLElement>("[data-shiguang-folder-target-id]")
+      .forEach((target) => {
+        target.classList.toggle(
+          "is-active",
+          target.dataset.shiguangFolderTargetId === activeFolderTargetId,
+        );
+      });
+  }
+
   function renderFolderTargets(refs: DragDockRefs): void {
     const { folderList, folderStatus, leftDropTarget, rightTitle } = refs;
     if (!folderList || !folderStatus || !leftDropTarget || !rightTitle) {
@@ -320,19 +336,16 @@ export function createDragDock(collector: Collector): DragDock {
       leftDropTarget.dataset.shiguangFolderId = defaultTarget.folderId || "";
     }
 
-    const defaultActive = activeFolderTargetId === DEFAULT_FOLDER_TARGET_ID;
-    leftDropTarget.classList.toggle("is-active", defaultActive);
-
     const visibleTargets = folderTargets.filter((folder) => folder.id !== DEFAULT_FOLDER_TARGET_ID);
     const renderSignature = [
       folderTargetsLoading ? "loading" : "ready",
       folderTargetsError,
-      activeFolderTargetId || "",
       visibleTargets
         .map((folder) => [folder.id, folder.name, folder.pathLabel, folder.depth].join(":"))
         .join("|"),
     ].join("\n");
     if (folderList.dataset.shiguangRenderSignature === renderSignature) {
+      syncFolderTargetActiveState(refs);
       return;
     }
     folderList.dataset.shiguangRenderSignature = renderSignature;
@@ -347,6 +360,7 @@ export function createDragDock(collector: Collector): DragDock {
         : folderTargetsError
           ? "暂时无法读取文件夹"
           : "尚未建立文件夹";
+      syncFolderTargetActiveState(refs);
       return;
     }
 
@@ -371,8 +385,6 @@ export function createDragDock(collector: Collector): DragDock {
       label.textContent = folder.name;
       label.className = "shiguang-drag-dock__folder-label";
 
-      const active = activeFolderTargetId === folder.id;
-      target.classList.toggle("is-active", active);
       target.style.setProperty(
         "--shiguang-folder-target-left",
         `${10 + Math.min(folder.depth || 0, 2) * 8}px`,
@@ -384,6 +396,7 @@ export function createDragDock(collector: Collector): DragDock {
     }
 
     folderList.appendChild(fragment);
+    syncFolderTargetActiveState(refs);
   }
 
   function ensureDragDock(): DragDockRefs {
