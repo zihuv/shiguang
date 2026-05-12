@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState, type CSSProperties } from "react";
 import { Toaster } from "sonner";
 import { useSettingsStore } from "@/stores/settingsStore";
 import { useAiBatchAnalyzeStore } from "@/stores/aiBatchAnalyzeStore";
@@ -32,6 +32,12 @@ const SettingsModal = lazy(() => import("@/components/SettingsModal"));
 
 const isMacPlatform =
   typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
+
+const toasterStyle = {
+  "--toast-close-button-start": "unset",
+  "--toast-close-button-end": "0",
+  "--toast-close-button-transform": "translate(35%, -35%)",
+} as CSSProperties;
 
 function App() {
   const hasBootstrapped = useBootstrapStore((state) => state.hasBootstrapped);
@@ -230,7 +236,12 @@ function App() {
       <Suspense fallback={null}>
         <SettingsModal open={showSettings} onClose={() => setShowSettings(false)} />
       </Suspense>
-      <Toaster position="bottom-right" />
+      <Toaster
+        position="bottom-right"
+        closeButton
+        style={toasterStyle}
+        toastOptions={{ closeButtonAriaLabel: "关闭通知" }}
+      />
     </div>
   );
 }
