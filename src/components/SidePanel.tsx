@@ -240,7 +240,14 @@ export default function SidePanel({ onCollapse, onOpenSettings, width }: SidePan
   };
 
   return (
-    <aside className={`${appPanelClass} flex-shrink-0`} style={{ width }}>
+    <aside
+      className={cn(
+        appPanelClass,
+        "relative flex-shrink-0",
+        isLibraryMenuOpen && "z-40 !overflow-visible",
+      )}
+      style={{ width }}
+    >
       <div
         className={cn(
           "app-sidebar-chrome app-drag-region flex flex-shrink-0 px-2",
@@ -270,7 +277,7 @@ export default function SidePanel({ onCollapse, onOpenSettings, width }: SidePan
             </button>
 
             {isLibraryMenuOpen ? (
-              <div className="absolute left-0 top-[calc(100%+8px)] z-30 w-[22rem] rounded-2xl bg-white/96 p-2 shadow-[0_14px_32px_rgba(0,0,0,0.12)] backdrop-blur dark:bg-[#171717]/96">
+              <div className="absolute left-0 top-[calc(100%+8px)] z-50 w-[22rem] rounded-2xl border border-black/8 bg-white/96 p-2 shadow-[0_14px_32px_rgba(0,0,0,0.12)] backdrop-blur dark:border-white/10 dark:bg-[#171717]/96 dark:shadow-[0_18px_44px_rgba(0,0,0,0.42)]">
                 <div className="rounded-lg px-2.5 py-2">
                   <div className="flex items-center gap-2 text-[13px] font-medium text-gray-900 dark:text-gray-100">
                     <span className="truncate">{currentLibraryName}</span>
