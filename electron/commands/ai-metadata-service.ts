@@ -24,8 +24,13 @@ import {
 } from "../../src/lib/aiMetadataDefaults";
 import type { AiMetadataTaskSnapshot, AppState, FileRecord } from "../types";
 import { emit, taskId } from "./common";
+import { isTerminalTaskStatus, scheduleTerminalTaskCleanup } from "./task-retention";
 
 let aiMetadataJobQueue = Promise.resolve();
+
+type AiMetadataTaskEntry = NonNullable<
+  AppState["aiMetadataTasks"] extends Map<string, infer Entry> ? Entry : never
+>;
 
 interface AiMetadataConfig {
   baseUrl: string;
@@ -500,62 +505,77 @@ async function runAiMetadataTask(
 ): Promise<void> {
   const entry = state.aiMetadataTasks.get(id);
   if (!entry) return;
-  if (entry.cancelled) {
-    entry.snapshot.status = "cancelled";
-    emit(window, "ai-metadata-task-updated", id);
-    return;
-  }
 
-  entry.snapshot.status = "running";
-  emit(window, "ai-metadata-task-updated", id);
-  const maxRetries = 3;
-  for (const [index, fileId] of fileIds.entries()) {
+  try {
     if (entry.cancelled) {
       entry.snapshot.status = "cancelled";
       emit(window, "ai-metadata-task-updated", id);
       return;
     }
-    let lastError: unknown;
-    for (let attempt = 1; attempt <= maxRetries; attempt += 1) {
-      try {
-        const file = await analyzeFileMetadata(state, fileId);
-        entry.snapshot.successCount += 1;
+
+    entry.snapshot.status = "running";
+    emit(window, "ai-metadata-task-updated", id);
+    const maxRetries = 3;
+    for (const [index, fileId] of fileIds.entries()) {
+      if (entry.cancelled) {
+        entry.snapshot.status = "cancelled";
+        emit(window, "ai-metadata-task-updated", id);
+        return;
+      }
+      let lastError: unknown;
+      for (let attempt = 1; attempt <= maxRetries; attempt += 1) {
+        try {
+          const file = await analyzeFileMetadata(state, fileId);
+          entry.snapshot.successCount += 1;
+          entry.snapshot.results.push({
+            index,
+            fileId,
+            status: "completed",
+            attempts: attempt,
+            error: null,
+            file,
+          });
+          emit(window, "file-updated", { fileId });
+          lastError = null;
+          break;
+        } catch (error) {
+          lastError = error;
+          if (attempt < maxRetries) {
+            await new Promise((r) => setTimeout(r, 1000 * attempt));
+          }
+        }
+      }
+      if (lastError) {
+        entry.snapshot.failureCount += 1;
         entry.snapshot.results.push({
           index,
           fileId,
-          status: "completed",
-          attempts: attempt,
-          error: null,
-          file,
+          status: "failed",
+          attempts: maxRetries,
+          error: lastError instanceof Error ? lastError.message : String(lastError),
+          file: null,
         });
-        emit(window, "file-updated", { fileId });
-        lastError = null;
-        break;
-      } catch (error) {
-        lastError = error;
-        if (attempt < maxRetries) {
-          await new Promise((r) => setTimeout(r, 1000 * attempt));
-        }
       }
+      entry.snapshot.processed += 1;
+      entry.snapshot.status =
+        entry.snapshot.processed === entry.snapshot.total
+          ? entry.snapshot.failureCount > 0
+            ? "completed_with_errors"
+            : "completed"
+          : "running";
+      emit(window, "ai-metadata-task-updated", id);
     }
-    if (lastError) {
-      entry.snapshot.failureCount += 1;
-      entry.snapshot.results.push({
-        index,
-        fileId,
-        status: "failed",
-        attempts: maxRetries,
-        error: lastError instanceof Error ? lastError.message : String(lastError),
-        file: null,
-      });
+  } finally {
+    const latestEntry = state.aiMetadataTasks.get(id);
+    if (latestEntry && isTerminalTaskStatus(latestEntry.snapshot.status)) {
+      compactAiMetadataTaskEntry(latestEntry);
+      scheduleTerminalTaskCleanup(state.aiMetadataTasks, id);
     }
-    entry.snapshot.processed += 1;
-    entry.snapshot.status =
-      entry.snapshot.processed === entry.snapshot.total
-        ? entry.snapshot.failureCount > 0
-          ? "completed_with_errors"
-          : "completed"
-        : "running";
-    emit(window, "ai-metadata-task-updated", id);
   }
+}
+
+function compactAiMetadataTaskEntry(entry: AiMetadataTaskEntry): void {
+  entry.snapshot.results = entry.snapshot.results.map((result) =>
+    result.file ? { ...result, file: null } : result,
+  );
 }

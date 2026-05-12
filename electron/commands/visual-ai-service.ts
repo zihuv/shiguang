@@ -28,6 +28,7 @@ import {
 } from "../visual-search/visual-index-utility-service.js";
 import type { AppState, FileRecord, VisualIndexTaskSnapshot } from "../types";
 import { emit, taskId } from "./common";
+import { isTerminalTaskStatus, scheduleTerminalTaskCleanup } from "./task-retention";
 
 export {
   analyzeFileMetadata,
@@ -450,17 +451,24 @@ export async function startVisualIndexTask(
     processUnindexedOnly,
   };
   state.visualIndexTasks.set(id, { snapshot, cancelled: false });
-  void runVisualIndexJob(state, window, id, processUnindexedOnly).catch((error) => {
-    const entry = state.visualIndexTasks.get(id);
-    if (!entry) {
-      return;
-    }
-    entry.snapshot.status = "failed";
-    entry.snapshot.currentFileId = null;
-    entry.snapshot.currentFileName = null;
-    log.error("[visual-search] visual index task failed", error);
-    emit(window, "visual-index-task-updated", id);
-  });
+  void runVisualIndexJob(state, window, id, processUnindexedOnly)
+    .catch((error) => {
+      const entry = state.visualIndexTasks.get(id);
+      if (!entry) {
+        return;
+      }
+      entry.snapshot.status = "failed";
+      entry.snapshot.currentFileId = null;
+      entry.snapshot.currentFileName = null;
+      log.error("[visual-search] visual index task failed", error);
+      emit(window, "visual-index-task-updated", id);
+    })
+    .finally(() => {
+      const entry = state.visualIndexTasks.get(id);
+      if (entry && isTerminalTaskStatus(entry.snapshot.status)) {
+        scheduleTerminalTaskCleanup(state.visualIndexTasks, id);
+      }
+    });
   queueMicrotask(() => emit(window, "visual-index-task-updated", id));
   return snapshot;
 }

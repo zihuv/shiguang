@@ -1,12 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { FileItem } from "@/stores/fileTypes";
 import FileTypeIcon from "@/components/FileTypeIcon";
-import {
-  getFilePreviewMode,
-  getFileSrc,
-  getGeneratedThumbnailSrc,
-  rememberPreviewImageSrc,
-} from "@/utils";
+import { getFilePreviewMode, getFileSrc, rememberPreviewImageSrc } from "@/utils";
 
 function revokeBlobUrl(src: string | null) {
   if (src?.startsWith("blob:")) {
@@ -15,9 +10,10 @@ function revokeBlobUrl(src: string | null) {
 }
 
 export function ThumbnailItem({ file }: { file: FileItem }) {
+  const { path, ext } = file;
   const [src, setSrc] = useState<string | null>(null);
   const srcRef = useRef<string | null>(null);
-  const previewType = getFilePreviewMode(file.ext);
+  const previewType = getFilePreviewMode(ext);
 
   useEffect(() => {
     let mounted = true;
@@ -25,29 +21,19 @@ export function ThumbnailItem({ file }: { file: FileItem }) {
     srcRef.current = null;
     setSrc(null);
 
-    if (previewType !== "image" && previewType !== "video" && previewType !== "thumbnail") {
+    if (previewType !== "image") {
       return () => {
         mounted = false;
       };
     }
 
-    const thumbnailFile = {
-      path: file.path,
-      ext: file.ext,
-      width: file.width,
-      height: file.height,
-      size: file.size,
-    };
-    const loader =
-      previewType === "video"
-        ? getGeneratedThumbnailSrc(thumbnailFile)
-        : previewType === "thumbnail"
-          ? getGeneratedThumbnailSrc(thumbnailFile)
-          : getFileSrc(file.path);
-
-    loader.then((imageSrc) => {
+    getFileSrc(path).then((imageSrc) => {
       if (!mounted) {
         revokeBlobUrl(imageSrc);
+        return;
+      }
+
+      if (!imageSrc) {
         return;
       }
 
@@ -61,18 +47,18 @@ export function ThumbnailItem({ file }: { file: FileItem }) {
       revokeBlobUrl(srcRef.current);
       srcRef.current = null;
     };
-  }, [file.ext, file.height, file.path, file.size, file.width, previewType]);
+  }, [path, previewType]);
 
   useEffect(() => {
     if (src) {
-      rememberPreviewImageSrc(file.path, src);
+      rememberPreviewImageSrc(path, src);
     }
-  }, [file.path, src]);
+  }, [path, src]);
 
-  if (!src || (previewType !== "image" && previewType !== "video" && previewType !== "thumbnail")) {
+  if (!src || previewType !== "image") {
     return (
       <div className="h-full w-full bg-gray-900/90">
-        <UnsupportedThumbnail ext={file.ext} />
+        <UnsupportedThumbnail ext={ext} />
       </div>
     );
   }

@@ -11,6 +11,7 @@ import {
   importFilePath,
 } from "./import-core";
 import { runPostImportPipeline } from "./post-import-pipeline";
+import { isTerminalTaskStatus, scheduleTerminalTaskCleanup } from "./task-retention";
 
 export {
   buildFileInputFromPath,
@@ -33,6 +34,10 @@ export {
 } from "./post-import-pipeline";
 
 const FILE_PATH_IMPORT_CONCURRENCY = 5;
+
+type ImportTaskEntry = NonNullable<
+  AppState["importTasks"] extends Map<string, infer Entry> ? Entry : never
+>;
 
 function importTaskSource(item: ImportTaskItem): string {
   if (item.kind === "base64_image") {
@@ -168,36 +173,58 @@ async function runImportTask(
     }
   };
 
-  if (entry.items.length > 1 && entry.items.every(isFilePathImportItem)) {
-    let nextIndex = 0;
-    const workers = Array.from(
-      { length: Math.min(FILE_PATH_IMPORT_CONCURRENCY, entry.items.length) },
-      async () => {
-        while (!entry.cancelled) {
-          const index = nextIndex;
-          nextIndex += 1;
-          const item = entry.items[index];
-          if (!item) {
-            return;
+  try {
+    if (entry.items.length > 1 && entry.items.every(isFilePathImportItem)) {
+      let nextIndex = 0;
+      const workers = Array.from(
+        { length: Math.min(FILE_PATH_IMPORT_CONCURRENCY, entry.items.length) },
+        async () => {
+          while (!entry.cancelled) {
+            const index = nextIndex;
+            nextIndex += 1;
+            const item = entry.items[index];
+            if (!item) {
+              return;
+            }
+            await processOne(index, item);
           }
-          await processOne(index, item);
+        },
+      );
+      await Promise.all(workers);
+    } else {
+      for (const [index, item] of entry.items.entries()) {
+        await processOne(index, item);
+        if (entry.cancelled) {
+          return;
         }
-      },
-    );
-    await Promise.all(workers);
-  } else {
-    for (const [index, item] of entry.items.entries()) {
-      await processOne(index, item);
-      if (entry.cancelled) {
-        return;
       }
     }
+
+    if (entry.cancelled && entry.snapshot.processed < entry.snapshot.total) {
+      entry.snapshot.status = "cancelled";
+      emit(window, "import-task-updated", id);
+    }
+  } finally {
+    const latestEntry = state.importTasks.get(id);
+    if (latestEntry && isTerminalTaskStatus(latestEntry.snapshot.status)) {
+      compactImportTaskEntry(latestEntry);
+      scheduleTerminalTaskCleanup(state.importTasks, id);
+    }
+  }
+}
+
+function compactImportTaskEntry(entry: ImportTaskEntry): void {
+  if (!entry.items.length) {
+    return;
   }
 
-  if (entry.cancelled && entry.snapshot.processed < entry.snapshot.total) {
-    entry.snapshot.status = "cancelled";
-    emit(window, "import-task-updated", id);
-  }
+  const failedIndexes = new Set(
+    entry.snapshot.results
+      .filter((result) => result.status === "failed")
+      .map((result) => result.index),
+  );
+  entry.retryItems = entry.items.filter((_item, index) => failedIndexes.has(index));
+  entry.items = [];
 }
 
 export async function startImportTask(

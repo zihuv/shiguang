@@ -14,6 +14,10 @@ import { ThumbnailItem } from "@/components/image-preview/PreviewHelpers";
 import { ContextMenu, ContextMenuTrigger } from "@/components/ui/ContextMenu";
 import { OVERLAY_BUTTON_CLASS, OVERLAY_CHIP_CLASS } from "./constants";
 import {
+  getCenteredPreviewThumbnailScrollLeft,
+  getPreviewThumbnailRange,
+} from "@/components/image-preview/previewThumbnailStripModel";
+import {
   ChevronLeft,
   ChevronRight,
   FastForward,
@@ -315,26 +319,69 @@ export function StandardPreviewShell({
   ...viewportProps
 }: StandardPreviewShellProps) {
   const thumbnailStripRef = useRef<HTMLDivElement | null>(null);
-  const selectedThumbnailRef = useRef<HTMLButtonElement | null>(null);
+  const [thumbnailViewport, setThumbnailViewport] = useState({
+    scrollLeft: 0,
+    viewportWidth: 0,
+  });
+  const thumbnailRange = getPreviewThumbnailRange({
+    itemCount: previewFiles.length,
+    scrollLeft: thumbnailViewport.scrollLeft,
+    viewportWidth: thumbnailViewport.viewportWidth,
+  });
+  const visiblePreviewThumbnails = previewFiles
+    .slice(thumbnailRange.startIndex, thumbnailRange.endIndex)
+    .map((file, offset) => ({
+      file,
+      index: thumbnailRange.startIndex + offset,
+    }));
 
-  useEffect(() => {
+  const updateThumbnailViewport = useCallback(() => {
     const strip = thumbnailStripRef.current;
-    const selectedThumbnail = selectedThumbnailRef.current;
-
-    if (!strip || !selectedThumbnail) {
+    if (!strip) {
       return;
     }
 
-    const stripRect = strip.getBoundingClientRect();
-    const selectedRect = selectedThumbnail.getBoundingClientRect();
-    const targetLeft =
-      strip.scrollLeft +
-      selectedRect.left -
-      stripRect.left -
-      (strip.clientWidth - selectedRect.width) / 2;
+    setThumbnailViewport({
+      scrollLeft: strip.scrollLeft,
+      viewportWidth: strip.clientWidth,
+    });
+  }, []);
 
-    strip.scrollLeft = Math.max(0, targetLeft);
-  }, [previewFiles.length, previewIndex]);
+  useEffect(() => {
+    const strip = thumbnailStripRef.current;
+    if (!strip) {
+      return;
+    }
+
+    updateThumbnailViewport();
+    strip.addEventListener("scroll", updateThumbnailViewport, { passive: true });
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      resizeObserver = new ResizeObserver(updateThumbnailViewport);
+      resizeObserver.observe(strip);
+    }
+
+    return () => {
+      strip.removeEventListener("scroll", updateThumbnailViewport);
+      resizeObserver?.disconnect();
+    };
+  }, [updateThumbnailViewport]);
+
+  useEffect(() => {
+    const strip = thumbnailStripRef.current;
+
+    if (!strip) {
+      return;
+    }
+
+    strip.scrollLeft = getCenteredPreviewThumbnailScrollLeft({
+      index: previewIndex,
+      itemCount: previewFiles.length,
+      viewportWidth: strip.clientWidth,
+    });
+    updateThumbnailViewport();
+  }, [previewFiles.length, previewIndex, updateThumbnailViewport]);
 
   return (
     <div className="flex h-full flex-col bg-[var(--app-canvas)]">
@@ -452,24 +499,26 @@ export function StandardPreviewShell({
 
         <div
           ref={thumbnailStripRef}
-          className="flex flex-1 items-center gap-1 overflow-x-auto py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="flex-1 overflow-x-auto overflow-y-hidden py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
-          {previewFiles.map((file, index) => (
-            <button
-              key={file.id}
-              ref={index === previewIndex ? selectedThumbnailRef : undefined}
-              onClick={() => onSelectPreviewIndex(index)}
-              className={cn(
-                "h-14 w-14 flex-shrink-0 overflow-hidden rounded-lg transition-[opacity,box-shadow,transform]",
-                index === previewIndex
-                  ? "opacity-100 ring-2 ring-inset ring-primary-500/80 shadow-[0_8px_18px_rgba(59,130,246,0.16)]"
-                  : "opacity-45 hover:opacity-75",
-              )}
-              aria-current={index === previewIndex ? "true" : undefined}
-            >
-              <ThumbnailItem file={file} />
-            </button>
-          ))}
+          <div className="relative h-14" style={{ width: `${thumbnailRange.totalWidth}px` }}>
+            {visiblePreviewThumbnails.map(({ file, index }) => (
+              <button
+                key={file.id}
+                onClick={() => onSelectPreviewIndex(index)}
+                className={cn(
+                  "absolute top-0 h-14 w-14 overflow-hidden rounded-lg transition-[opacity,box-shadow]",
+                  index === previewIndex
+                    ? "opacity-100 ring-2 ring-inset ring-primary-500/80 shadow-[0_8px_18px_rgba(59,130,246,0.16)]"
+                    : "opacity-45 hover:opacity-75",
+                )}
+                style={{ left: `${index * thumbnailRange.itemStride}px` }}
+                aria-current={index === previewIndex ? "true" : undefined}
+              >
+                <ThumbnailItem file={file} />
+              </button>
+            ))}
+          </div>
         </div>
 
         <button

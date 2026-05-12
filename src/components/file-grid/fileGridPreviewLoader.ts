@@ -3,7 +3,7 @@ import { getOrCreateThumbHash } from "@/services/desktop/files";
 import { type FileItem } from "@/stores/fileTypes";
 import { useThumbnailRefreshStore } from "@/stores/thumbnailRefreshStore";
 import { decideThumbnailPlan, getThumbnailGenerationRuntimeForExt } from "@/lib/thumbnailPolicy";
-import { thumbHashBase64ToBytes, thumbHashToDataUrl } from "@/lib/thumbhash";
+import { getThumbHashPlaceholderSrc } from "@/utils/thumbHashPlaceholder";
 import {
   canGenerateThumbnail,
   getFileSrc,
@@ -17,12 +17,10 @@ import {
 
 const OBSERVER_ROOT_MARGIN = "320px";
 const IMAGE_SRC_CACHE_LIMIT = 512;
-const THUMB_HASH_CACHE_LIMIT = 256;
 const MAX_CONCURRENT_VISIBLE_IMAGE_LOADS = 10;
 const MAX_CONCURRENT_PREWARM_IMAGE_LOADS = 3;
 
 const imageSrcCache = new Map<string, string>();
-const thumbHashPlaceholderCache = new Map<string, string>();
 const pendingThumbHashPlaceholderTasks = new Map<string, Promise<string>>();
 const queuedThumbHashPrewarmKeys = new Set<string>();
 const queuedThumbnailPrewarmKeys = new Set<string>();
@@ -71,16 +69,6 @@ function releaseUnusedImageSrc(src: string | null | undefined) {
 
 function shouldCacheImageSrc(src: string) {
   return Boolean(src) && !src.startsWith("blob:") && !src.startsWith("data:");
-}
-
-function trimStringCache(cache: Map<string, string>, limit: number) {
-  while (cache.size > limit) {
-    const oldestKey = cache.keys().next().value;
-    if (!oldestKey) {
-      break;
-    }
-    cache.delete(oldestKey);
-  }
 }
 
 function getGenerationActiveCount(counts: Map<number, number>, generation: number) {
@@ -296,30 +284,6 @@ function flushThumbHashPrewarmQueue() {
         activeThumbHashPrewarmTaskCount = Math.max(0, activeThumbHashPrewarmTaskCount - 1);
         flushThumbHashPrewarmQueue();
       });
-  }
-}
-
-function getThumbHashPlaceholderSrc(thumbHash: string | null | undefined) {
-  const normalizedThumbHash = thumbHash?.trim() ?? "";
-  if (!normalizedThumbHash) {
-    return "";
-  }
-
-  const cached = thumbHashPlaceholderCache.get(normalizedThumbHash);
-  if (cached) {
-    thumbHashPlaceholderCache.delete(normalizedThumbHash);
-    thumbHashPlaceholderCache.set(normalizedThumbHash, cached);
-    return cached;
-  }
-
-  try {
-    const placeholderSrc = thumbHashToDataUrl(thumbHashBase64ToBytes(normalizedThumbHash));
-    thumbHashPlaceholderCache.set(normalizedThumbHash, placeholderSrc);
-    trimStringCache(thumbHashPlaceholderCache, THUMB_HASH_CACHE_LIMIT);
-    return placeholderSrc;
-  } catch (error) {
-    console.error("Failed to decode thumb hash placeholder:", error);
-    return "";
   }
 }
 

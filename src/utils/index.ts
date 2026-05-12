@@ -33,6 +33,7 @@ export {
   getRememberedPreviewImageSrc,
   rememberPreviewImageSrc,
 } from "@/utils/previewImageCache";
+export { getThumbHashPlaceholderSrc } from "@/utils/thumbHashPlaceholder";
 export {
   generateBrowserThumbnailCache,
   generateRendererThumbnailCache,

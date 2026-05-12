@@ -186,10 +186,12 @@ export function createFileCommands(
     retry_import_task: (args, window) => {
       const task = state.importTasks.get(stringArg(args, "taskId", "task_id"));
       if (!task) throw new Error("Import task not found");
-      const failed = task.snapshot.results
-        .filter((result) => result.status === "failed")
-        .map((result) => task.items[result.index])
-        .filter(Boolean);
+      const failed =
+        task.retryItems ??
+        task.snapshot.results
+          .filter((result) => result.status === "failed")
+          .map((result) => task.items[result.index])
+          .filter(Boolean);
       if (!failed.length) throw new Error("No failed import items to retry");
       return startImportTask(state, window, failed, task.folderId);
     },

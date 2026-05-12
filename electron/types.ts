@@ -201,6 +201,7 @@ export interface AppState {
     {
       snapshot: ImportTaskSnapshot;
       items: ImportTaskItem[];
+      retryItems?: ImportTaskItem[];
       folderId: number | null;
       cancelled: boolean;
     }
