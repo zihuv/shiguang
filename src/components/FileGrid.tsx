@@ -248,12 +248,34 @@ export default function FileGrid() {
       viewMode,
     });
 
-  const handleFileClick = (file: FileItem, event: ReactMouseEvent<HTMLDivElement>) => {
+  const handleFileMouseDown = (file: FileItem, event: ReactMouseEvent<HTMLDivElement>) => {
     if (event.button !== 0) {
       return;
     }
 
     scrollParentRef.current?.focus({ preventScroll: true });
+
+    if (event.ctrlKey || event.metaKey) {
+      return;
+    }
+
+    if (selectedFiles.length > 0) {
+      if (!selectedFiles.includes(file.id)) {
+        clearSelection();
+        setSelectedFile(file);
+      }
+      return;
+    }
+
+    if (selectedFile?.id !== file.id) {
+      setSelectedFile(file);
+    }
+  };
+
+  const handleFileClick = (file: FileItem, event: ReactMouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0) {
+      return;
+    }
 
     if (event.ctrlKey || event.metaKey) {
       const nextSelectedIds = new Set<number>(selectedFiles);
@@ -278,7 +300,9 @@ export default function FileGrid() {
       clearSelection();
     }
 
-    setSelectedFile(file);
+    if (selectedFile?.id !== file.id) {
+      setSelectedFile(file);
+    }
   };
 
   const handleFileDoubleClick = (index: number) => {
@@ -385,6 +409,7 @@ export default function FileGrid() {
           gridVirtualRows={gridVirtualRows}
           handleFileClick={handleFileClick}
           handleFileDoubleClick={handleFileDoubleClick}
+          handleFileMouseDown={handleFileMouseDown}
           handleSelectionStart={handleSelectionStart}
           handleViewportWheel={handleViewportWheel}
           libraryVisibleFields={libraryVisibleFields}

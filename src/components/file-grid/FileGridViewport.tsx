@@ -38,6 +38,7 @@ interface FileGridViewportProps {
   gridVirtualRows: number[];
   handleFileClick: (file: FileItem, event: ReactMouseEvent<HTMLDivElement>) => void;
   handleFileDoubleClick: (index: number) => void;
+  handleFileMouseDown: (file: FileItem, event: ReactMouseEvent<HTMLDivElement>) => void;
   handleSelectionStart: (event: ReactMouseEvent<HTMLDivElement>) => void;
   handleViewportWheel: (event: ReactWheelEvent<HTMLDivElement>) => void;
   libraryVisibleFields: LibraryVisibleField[];
@@ -65,6 +66,7 @@ export function FileGridViewport({
   gridVirtualRows,
   handleFileClick,
   handleFileDoubleClick,
+  handleFileMouseDown,
   handleSelectionStart,
   handleViewportWheel,
   libraryVisibleFields,
@@ -114,6 +116,7 @@ export function FileGridViewport({
                 scrollRootRef={scrollParentRef}
                 onClick={(event) => handleFileClick(item.file, event)}
                 onDoubleClick={() => handleFileDoubleClick(item.index)}
+                onMouseDown={(event) => handleFileMouseDown(item.file, event)}
               />
             </div>
           ))}
@@ -157,6 +160,7 @@ export function FileGridViewport({
                       scrollRootRef={scrollParentRef}
                       onClick={(event) => handleFileClick(file, event)}
                       onDoubleClick={() => handleFileDoubleClick(startIndex + offset)}
+                      onMouseDown={(event) => handleFileMouseDown(file, event)}
                     />
                   ))}
                 </div>
@@ -191,6 +195,7 @@ export function FileGridViewport({
                   scrollRootRef={scrollParentRef}
                   onClick={(event) => handleFileClick(file, event)}
                   onDoubleClick={() => handleFileDoubleClick(virtualRow.index)}
+                  onMouseDown={(event) => handleFileMouseDown(file, event)}
                 />
               </div>
             );

@@ -41,6 +41,7 @@ type FileCardBaseProps = {
   scrollRootRef: RefObject<HTMLDivElement | null>;
   onClick: (event: ReactMouseEvent<HTMLDivElement>) => void;
   onDoubleClick?: () => void;
+  onMouseDown: (event: ReactMouseEvent<HTMLDivElement>) => void;
 };
 
 type VideoPlayBadgeProps = {
@@ -127,6 +128,7 @@ export function FileCard({
   scrollRootRef,
   onClick,
   onDoubleClick,
+  onMouseDown,
 }: FileCardBaseProps & { previewWidth: number; generation: number }) {
   const { ref: visibilityRef, isVisible } = useVisibility(scrollRootRef);
   const isVideo = isVideoFile(file.ext);
@@ -165,6 +167,7 @@ export function FileCard({
           {...externalDragProps}
           onClick={onClick}
           onDoubleClick={onDoubleClick}
+          onMouseDown={onMouseDown}
           className={cn(
             FILE_CARD_BASE_CLASS,
             "h-full",
@@ -256,6 +259,7 @@ export function AdaptiveFileCard({
   scrollRootRef,
   onClick,
   onDoubleClick,
+  onMouseDown,
 }: FileCardBaseProps & { previewWidth: number; generation: number }) {
   const { ref: visibilityRef, isVisible } = useVisibility(
     scrollRootRef,
@@ -314,6 +318,7 @@ export function AdaptiveFileCard({
           {...externalDragProps}
           onClick={onClick}
           onDoubleClick={onDoubleClick}
+          onMouseDown={onMouseDown}
           className={cn(
             FILE_CARD_BASE_CLASS,
             isMultiSelected
@@ -404,6 +409,7 @@ export function FileRow({
   scrollRootRef,
   onClick,
   onDoubleClick,
+  onMouseDown,
 }: FileCardBaseProps & { thumbnailSize: number; generation: number }) {
   const { ref: visibilityRef, isVisible } = useVisibility(scrollRootRef);
   const isVideo = isVideoFile(file.ext);
@@ -443,6 +449,7 @@ export function FileRow({
           {...externalDragProps}
           onClick={onClick}
           onDoubleClick={onDoubleClick}
+          onMouseDown={onMouseDown}
           className={cn(
             "file-card relative flex cursor-pointer items-center gap-3 overflow-hidden rounded-[16px] p-2.5 transition-colors duration-100",
             isMultiSelected
