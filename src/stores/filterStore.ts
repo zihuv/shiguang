@@ -7,12 +7,10 @@ import {
 } from "@/features/filters/types";
 import { getActiveFilterCount as getSchemaActiveFilterCount } from "@/features/filters/schema";
 import { getSetting, setSetting } from "@/services/desktop/indexing";
-import { LIBRARY_FILTER_FILE_TYPES, extensionSet } from "@/shared/file-formats";
 
 export type { FileSortField, FilterCriteria, SortDirection } from "@/features/filters/types";
 
-const FILTER_PREFERENCES_SETTING_KEY = "libraryFilterPreferences";
-let filterPreferencesPersistTimer: ReturnType<typeof setTimeout> | null = null;
+const SORT_PREFERENCES_SETTING_KEY = "librarySortPreferences";
 
 type LegacyFileSortOption =
   | "imported_desc"
@@ -24,12 +22,7 @@ type LegacyFileSortOption =
   | "size_desc"
   | "size_asc";
 
-const FILE_TYPES = extensionSet(LIBRARY_FILTER_FILE_TYPES);
-
-type PersistedFilterPreferences = {
-  fileType?: unknown;
-  tagIds?: unknown;
-  dominantColor?: unknown;
+type PersistedSortPreferences = {
   sortBy?: unknown;
   sortDirection?: unknown;
   sort?: unknown;
@@ -109,44 +102,30 @@ function getLegacySortConfig(sort: LegacyFileSortOption) {
   }
 }
 
-function serializeFilterPreferences(criteria: FilterCriteria) {
+function serializeSortPreferences(criteria: FilterCriteria) {
   return JSON.stringify({
-    fileType: criteria.fileType,
-    tagIds: criteria.tagIds,
-    dominantColor: criteria.dominantColor,
     sortBy: criteria.sortBy,
     sortDirection: criteria.sortDirection,
   });
 }
 
-function scheduleFilterPreferencesPersist(
+function persistSortPreferences(
   get: () => { criteria: FilterCriteria; hasLoadedPreferences: boolean },
 ) {
   if (!get().hasLoadedPreferences) {
     return;
   }
 
-  if (filterPreferencesPersistTimer) {
-    clearTimeout(filterPreferencesPersistTimer);
-  }
-
-  filterPreferencesPersistTimer = setTimeout(() => {
-    const { criteria, hasLoadedPreferences } = get();
-    if (!hasLoadedPreferences) {
-      return;
-    }
-
-    void setSetting(FILTER_PREFERENCES_SETTING_KEY, serializeFilterPreferences(criteria)).catch(
-      (error) => {
-        console.error("Failed to persist filter preferences:", error);
-      },
-    );
-  }, 120);
+  void setSetting(SORT_PREFERENCES_SETTING_KEY, serializeSortPreferences(get().criteria)).catch(
+    (error) => {
+      console.error("Failed to persist sort preferences:", error);
+    },
+  );
 }
 
-function restoreFilterPreferences(
+function restoreSortPreferences(
   criteria: FilterCriteria,
-  value: PersistedFilterPreferences,
+  value: PersistedSortPreferences,
 ): FilterCriteria {
   const legacySort = isLegacyFileSortOption(value.sort)
     ? getLegacySortConfig(value.sort)
@@ -157,18 +136,6 @@ function restoreFilterPreferences(
 
   return {
     ...criteria,
-    fileType: FILE_TYPES.has(value.fileType as string)
-      ? (value.fileType as FilterCriteria["fileType"])
-      : criteria.fileType,
-    tagIds: Array.isArray(value.tagIds)
-      ? value.tagIds
-          .map((tagId) => Number(tagId))
-          .filter((tagId) => Number.isInteger(tagId) && tagId > 0)
-      : criteria.tagIds,
-    dominantColor:
-      typeof value.dominantColor === "string" || value.dominantColor === null
-        ? value.dominantColor
-        : criteria.dominantColor,
     sortBy: isFileSortField(value.sortBy) ? value.sortBy : legacySort.sortBy,
     sortDirection: isSortDirection(value.sortDirection)
       ? value.sortDirection
@@ -191,7 +158,6 @@ export const useFilterStore = create<FilterStore>((set, get) => ({
     set((state) => ({
       criteria: { ...state.criteria, fileType },
     }));
-    scheduleFilterPreferencesPersist(get);
   },
 
   setDateRange: (range) => {
@@ -215,14 +181,12 @@ export const useFilterStore = create<FilterStore>((set, get) => ({
         criteria: { ...state.criteria, tagIds },
       };
     });
-    scheduleFilterPreferencesPersist(get);
   },
 
   setTagIds: (tagIds) => {
     set((state) => ({
       criteria: { ...state.criteria, tagIds },
     }));
-    scheduleFilterPreferencesPersist(get);
   },
 
   setMinRating: (rating) => {
@@ -240,7 +204,6 @@ export const useFilterStore = create<FilterStore>((set, get) => ({
         sortDirection: state.criteria.sortDirection,
       },
     }));
-    scheduleFilterPreferencesPersist(get);
   },
 
   setFilterPanelOpen: (open) => {
@@ -255,7 +218,6 @@ export const useFilterStore = create<FilterStore>((set, get) => ({
     set((state) => ({
       criteria: { ...state.criteria, dominantColor: color },
     }));
-    scheduleFilterPreferencesPersist(get);
   },
 
   setKeyword: (keyword) => {
@@ -274,14 +236,14 @@ export const useFilterStore = create<FilterStore>((set, get) => ({
     set((state) => ({
       criteria: { ...state.criteria, sortBy },
     }));
-    scheduleFilterPreferencesPersist(get);
+    persistSortPreferences(get);
   },
 
   setSortDirection: (sortDirection) => {
     set((state) => ({
       criteria: { ...state.criteria, sortDirection },
     }));
-    scheduleFilterPreferencesPersist(get);
+    persistSortPreferences(get);
   },
 
   setSort: (sortBy, sortDirection) => {
@@ -292,7 +254,7 @@ export const useFilterStore = create<FilterStore>((set, get) => ({
         sortDirection: sortDirection ?? state.criteria.sortDirection,
       },
     }));
-    scheduleFilterPreferencesPersist(get);
+    persistSortPreferences(get);
   },
 
   getActiveFilterCount: () => {
@@ -303,21 +265,18 @@ export const useFilterStore = create<FilterStore>((set, get) => ({
     let nextCriteria = { ...get().criteria };
 
     try {
-      const rawValue = await getSetting(FILTER_PREFERENCES_SETTING_KEY);
+      const rawValue = await getSetting(SORT_PREFERENCES_SETTING_KEY);
       if (rawValue) {
-        const parsed = JSON.parse(rawValue) as PersistedFilterPreferences;
-        nextCriteria = restoreFilterPreferences(nextCriteria, parsed);
+        const parsed = JSON.parse(rawValue) as PersistedSortPreferences;
+        nextCriteria = restoreSortPreferences(nextCriteria, parsed);
       }
     } catch (error) {
-      console.error("Failed to load filter preferences:", error);
+      console.error("Failed to load sort preferences:", error);
     }
 
     set((state) => ({
       criteria: {
         ...state.criteria,
-        fileType: nextCriteria.fileType,
-        tagIds: nextCriteria.tagIds,
-        dominantColor: nextCriteria.dominantColor,
         sortBy: nextCriteria.sortBy,
         sortDirection: nextCriteria.sortDirection,
       },
