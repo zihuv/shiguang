@@ -19,12 +19,16 @@ import {
   formatVideoTime,
   getProgressPercent,
   HOVER_PREVIEW_DELAY_MS,
+  parseVideoTimeInput,
   PLAYBACK_RATES,
   SKIP_SECONDS,
 } from "./videoPlayerModel";
 
 type VideoPlayerVariant = "detail" | "preview";
 type VideoFitMode = "contain" | "cover";
+const HOVER_THUMBNAIL_WIDTH = 144;
+const HOVER_THUMBNAIL_HALF_WIDTH = HOVER_THUMBNAIL_WIDTH / 2;
+const HOVER_THUMBNAIL_SEEK_TOLERANCE_SECONDS = 0.18;
 
 interface InitialVideoPlaybackState {
   currentTime: number;
@@ -93,6 +97,7 @@ export function VideoPlayer({
   const hoverVideoRef = useRef<HTMLVideoElement | null>(null);
   const hoverCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const hoverPreviewTimerRef = useRef<number | null>(null);
+  const hoverPreviewLatestTimeRef = useRef<number | null>(null);
   const hoverPreviewTargetRef = useRef<number | null>(null);
   const playbackRateMenuRef = useRef<HTMLDivElement | null>(null);
   const latestDurationRef = useRef(initialDuration);
@@ -132,17 +137,17 @@ export function VideoPlayer({
   const [isHoverPreviewMounted, setIsHoverPreviewMounted] = useState(false);
   const [isEditingTime, setIsEditingTime] = useState(false);
   const [isPlaybackRateMenuOpen, setIsPlaybackRateMenuOpen] = useState(false);
-  const [timeInputValue, setTimeInputValue] = useState(() =>
-    String(Math.floor(initialCurrentTime)),
-  );
+  const [timeInputValue, setTimeInputValue] = useState(() => formatVideoTime(initialCurrentTime));
   const [hoverState, setHoverState] = useState<{
     active: boolean;
-    left: number;
+    panelLeft: number;
+    pointerOffset: number;
     time: number;
     thumbnailSrc: string;
   }>({
     active: false,
-    left: 0,
+    panelLeft: 0,
+    pointerOffset: 0,
     time: 0,
     thumbnailSrc: "",
   });
@@ -194,8 +199,8 @@ export function VideoPlayer({
     setHasVideoError(false);
     setIsEditingTime(false);
     setIsPlaybackRateMenuOpen(false);
-    setTimeInputValue(String(Math.floor(initialPlaybackState.currentTime)));
-    setHoverState({ active: false, left: 0, time: 0, thumbnailSrc: "" });
+    setTimeInputValue(formatVideoTime(initialPlaybackState.currentTime));
+    setHoverState({ active: false, panelLeft: 0, pointerOffset: 0, time: 0, thumbnailSrc: "" });
   }, [src]);
 
   useEffect(() => {
@@ -269,7 +274,7 @@ export function VideoPlayer({
     ) {
       video.currentTime = targetInitialTime;
       setCurrentTime(targetInitialTime);
-      setTimeInputValue(String(Math.floor(targetInitialTime)));
+      setTimeInputValue(formatVideoTime(targetInitialTime));
       initialSeekAppliedRef.current = Math.abs(video.currentTime - targetInitialTime) <= 0.25;
     }
 
@@ -460,13 +465,16 @@ export function VideoPlayer({
   );
 
   const commitTimeInput = useCallback(() => {
-    const nextTime = Number.parseFloat(timeInputValue);
+    const nextTime = parseVideoTimeInput(timeInputValue);
     if (Number.isFinite(nextTime)) {
       seekTo(nextTime);
+      setTimeInputValue(formatVideoTime(nextTime));
+    } else {
+      setTimeInputValue(formatVideoTime(currentTime));
     }
 
     setIsEditingTime(false);
-  }, [seekTo, timeInputValue]);
+  }, [currentTime, seekTo, timeInputValue]);
 
   const focusPlayer = useCallback(() => {
     containerRef.current?.focus({ preventScroll: true });
@@ -528,7 +536,12 @@ export function VideoPlayer({
     }
 
     try {
-      hoverVideo.currentTime = clampTime(time, hoverVideo.duration);
+      const targetTime = clampTime(time, hoverVideo.duration);
+      if (typeof hoverVideo.fastSeek === "function") {
+        hoverVideo.fastSeek(targetTime);
+      } else {
+        hoverVideo.currentTime = targetTime;
+      }
     } catch (error) {
       console.error("Failed to seek hover preview:", error);
     }
@@ -536,13 +549,20 @@ export function VideoPlayer({
 
   const scheduleHoverThumbnail = useCallback(
     (time: number) => {
-      clearHoverPreviewTimer();
+      hoverPreviewLatestTimeRef.current = time;
+      if (hoverPreviewTimerRef.current !== null) {
+        return;
+      }
+
       hoverPreviewTimerRef.current = window.setTimeout(() => {
         hoverPreviewTimerRef.current = null;
-        captureHoverThumbnail(time);
+        const latestTime = hoverPreviewLatestTimeRef.current;
+        if (latestTime !== null) {
+          captureHoverThumbnail(latestTime);
+        }
       }, HOVER_PREVIEW_DELAY_MS);
     },
-    [captureHoverThumbnail, clearHoverPreviewTimer],
+    [captureHoverThumbnail],
   );
 
   const handleProgressPointerMove = useCallback(
@@ -554,13 +574,25 @@ export function VideoPlayer({
       const rect = event.currentTarget.getBoundingClientRect();
       const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
       const hoverTime = duration * ratio;
-      const hoverLeft = ratio * 100;
+      const pointerLeft = ratio * rect.width;
+      const playerRect = containerRef.current?.getBoundingClientRect();
+      const minPanelLeft = playerRect
+        ? HOVER_THUMBNAIL_HALF_WIDTH - (rect.left - playerRect.left)
+        : HOVER_THUMBNAIL_HALF_WIDTH;
+      const maxPanelLeft = playerRect
+        ? playerRect.right - rect.left - HOVER_THUMBNAIL_HALF_WIDTH
+        : rect.width - HOVER_THUMBNAIL_HALF_WIDTH;
+      const panelLeft = Math.min(
+        Math.max(pointerLeft, minPanelLeft),
+        Math.max(minPanelLeft, maxPanelLeft),
+      );
 
       setIsHoverPreviewMounted(true);
       setHoverState((current) => ({
         ...current,
         active: true,
-        left: hoverLeft,
+        panelLeft,
+        pointerOffset: pointerLeft - panelLeft,
         time: hoverTime,
       }));
       scheduleHoverThumbnail(hoverTime);
@@ -570,8 +602,9 @@ export function VideoPlayer({
 
   const handleProgressPointerLeave = useCallback(() => {
     clearHoverPreviewTimer();
-    setIsHoverPreviewMounted(false);
-    setHoverState((current) => ({ ...current, active: false, thumbnailSrc: "" }));
+    hoverPreviewLatestTimeRef.current = null;
+    hoverPreviewTargetRef.current = null;
+    setHoverState((current) => ({ ...current, active: false }));
   }, [clearHoverPreviewTimer]);
 
   const handleHoverPreviewMetadata = useCallback(() => {
@@ -587,14 +620,19 @@ export function VideoPlayer({
       return;
     }
 
+    const seekedTime = hoverVideo.currentTime;
     const targetTime = hoverPreviewTargetRef.current;
-    if (targetTime !== null && Math.abs(hoverVideo.currentTime - targetTime) > 0.35) {
+    if (
+      targetTime !== null &&
+      Math.abs(seekedTime - targetTime) > HOVER_THUMBNAIL_SEEK_TOLERANCE_SECONDS
+    ) {
+      captureHoverThumbnail(targetTime);
       return;
     }
 
     const canvas = hoverCanvasRef.current ?? document.createElement("canvas");
     hoverCanvasRef.current = canvas;
-    const width = 176;
+    const width = HOVER_THUMBNAIL_WIDTH;
     const height = Math.max(
       1,
       Math.round((hoverVideo.videoHeight / hoverVideo.videoWidth) * width),
@@ -609,18 +647,36 @@ export function VideoPlayer({
       canvas.width = width;
       canvas.height = height;
       ctx.drawImage(hoverVideo, 0, 0, width, height);
+      const thumbnailSrc = canvas.toDataURL("image/jpeg", 0.72);
 
       setHoverState((current) => ({
         ...current,
-        thumbnailSrc: canvas.toDataURL("image/jpeg", 0.72),
+        thumbnailSrc:
+          current.active &&
+          Math.abs(current.time - seekedTime) <= HOVER_THUMBNAIL_SEEK_TOLERANCE_SECONDS
+            ? thumbnailSrc
+            : current.thumbnailSrc,
       }));
+
+      const latestTime = hoverPreviewLatestTimeRef.current;
+      if (
+        latestTime !== null &&
+        Math.abs(latestTime - seekedTime) > HOVER_THUMBNAIL_SEEK_TOLERANCE_SECONDS
+      ) {
+        clearHoverPreviewTimer();
+        captureHoverThumbnail(latestTime);
+      }
     } catch (error) {
       console.error("Failed to render hover preview:", error);
     }
-  }, []);
+  }, [captureHoverThumbnail, clearHoverPreviewTimer]);
 
   const progressStyle = {
-    background: `linear-gradient(to right, rgb(59 130 246) 0%, rgb(59 130 246) ${progressPercent}%, rgba(255,255,255,0.28) ${progressPercent}%, rgba(255,255,255,0.28) 100%)`,
+    background: `linear-gradient(to right, rgba(226,232,240,0.95) 0%, rgba(226,232,240,0.95) ${progressPercent}%, rgba(255,255,255,0.18) ${progressPercent}%, rgba(255,255,255,0.18) 100%)`,
+  };
+  const volumePercent = (isMuted ? 0 : volume) * 100;
+  const volumeStyle = {
+    background: `linear-gradient(to right, rgb(37,99,235) 0%, rgb(37,99,235) ${volumePercent}%, rgba(255,255,255,0.24) ${volumePercent}%, rgba(255,255,255,0.24) 100%)`,
   };
   const isDetail = variant === "detail";
 
@@ -667,7 +723,7 @@ export function VideoPlayer({
           const nextCurrentTime = event.currentTarget.currentTime;
           setCurrentTime(nextCurrentTime);
           if (!isEditingTime) {
-            setTimeInputValue(String(Math.floor(nextCurrentTime)));
+            setTimeInputValue(formatVideoTime(nextCurrentTime));
           }
           emitPlaybackSnapshot({ currentTime: nextCurrentTime });
         }}
@@ -682,7 +738,7 @@ export function VideoPlayer({
           src={src}
           muted
           playsInline
-          preload="metadata"
+          preload="auto"
           className="hidden"
           onLoadedMetadata={handleHoverPreviewMetadata}
           onError={() => setHoverState((current) => ({ ...current, thumbnailSrc: "" }))}
@@ -699,7 +755,7 @@ export function VideoPlayer({
 
       <div
         className={cn(
-          "absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/82 via-black/56 to-transparent text-white transition-opacity duration-150",
+          "absolute inset-x-0 bottom-0 bg-black/[0.86] text-white shadow-[0_-1px_0_rgba(255,255,255,0.06)] backdrop-blur-[2px] transition-opacity duration-150",
           isPlaying ? "opacity-0 group-hover:opacity-100" : "opacity-100",
         )}
         data-video-controls
@@ -707,28 +763,116 @@ export function VideoPlayer({
       >
         <div
           className={cn(
-            "flex flex-col",
-            isDetail ? "gap-1 px-2.5 pb-2 pt-2" : "gap-1 px-4 pb-2 pt-2",
+            "flex min-w-0 items-center",
+            isDetail ? "h-10 gap-1 px-2" : "h-12 gap-2 px-3",
           )}
         >
+          <div className="flex shrink-0 items-center gap-0.5">
+            <button
+              type="button"
+              onClick={() => skipBy(-SKIP_SECONDS)}
+              className={cn(
+                "flex items-center justify-center rounded-sm text-white/[0.62] transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45",
+                isDetail ? "size-7" : "size-8",
+              )}
+              title="后退 5 秒"
+              aria-label="后退 5 秒"
+            >
+              <Rewind className={cn(isDetail ? "h-4 w-4" : "h-5 w-5")} />
+            </button>
+            <button
+              type="button"
+              onClick={togglePlay}
+              className={cn(
+                "flex items-center justify-center rounded-sm text-white/[0.72] transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45",
+                isDetail ? "size-8" : "size-10",
+              )}
+              title={isPlaying ? "暂停" : "播放"}
+              aria-label={isPlaying ? "暂停" : "播放"}
+            >
+              {isPlaying ? (
+                <Pause className={cn(isDetail ? "h-5 w-5" : "h-7 w-7")} />
+              ) : (
+                <Play className={cn("ml-0.5 fill-current", isDetail ? "h-5 w-5" : "h-7 w-7")} />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => skipBy(SKIP_SECONDS)}
+              className={cn(
+                "flex items-center justify-center rounded-sm text-white/[0.62] transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45",
+                isDetail ? "size-7" : "size-8",
+              )}
+              title="前进 5 秒"
+              aria-label="前进 5 秒"
+            >
+              <FastForward className={cn(isDetail ? "h-4 w-4" : "h-5 w-5")} />
+            </button>
+          </div>
+
           <div
-            className="relative flex h-3 items-center"
+            className={cn(
+              "flex shrink-0 items-center whitespace-nowrap tabular-nums text-white/[0.58]",
+              isDetail ? "text-[11px]" : "text-[13px]",
+            )}
+          >
+            {isEditingTime ? (
+              <input
+                value={timeInputValue}
+                onChange={(event) => setTimeInputValue(event.currentTarget.value)}
+                onBlur={commitTimeInput}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    commitTimeInput();
+                  } else if (event.key === "Escape") {
+                    setIsEditingTime(false);
+                    setTimeInputValue(formatVideoTime(currentTime));
+                  }
+                }}
+                className="h-6 w-20 rounded-sm border border-white/12 bg-white/10 px-2 text-center text-[12px] text-white outline-none"
+                autoFocus
+                aria-label="跳转到时间"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setTimeInputValue(formatVideoTime(currentTime));
+                  setIsEditingTime(true);
+                }}
+                className="rounded-sm px-1 py-0.5 transition hover:bg-white/10 hover:text-white"
+                title="跳转到指定时间"
+              >
+                {formatVideoTime(currentTime)}
+              </button>
+            )}
+          </div>
+
+          <div
+            className="relative flex h-full min-w-12 flex-1 items-center"
             onPointerMove={handleProgressPointerMove}
             onPointerLeave={handleProgressPointerLeave}
           >
             {hoverState.active && (
               <div
-                className="pointer-events-none absolute bottom-7 z-10 flex -translate-x-1/2 flex-col items-center gap-1"
-                style={{ left: `${hoverState.left}%` }}
+                className="pointer-events-none absolute bottom-11 z-10 flex -translate-x-1/2 flex-col items-center gap-1"
+                data-video-hover-preview
+                style={{
+                  left: `${hoverState.panelLeft}px`,
+                  width: `${HOVER_THUMBNAIL_WIDTH}px`,
+                }}
               >
                 {hoverState.thumbnailSrc && (
                   <img
                     src={hoverState.thumbnailSrc}
                     alt=""
-                    className="max-h-24 w-44 rounded-md bg-black object-contain shadow-lg ring-1 ring-white/15"
+                    className="max-h-24 w-full shrink-0 rounded-md bg-black object-contain shadow-lg ring-1 ring-white/15"
                   />
                 )}
-                <span className="rounded-full bg-black/75 px-2 py-1 text-[11px] font-medium text-white shadow-sm ring-1 ring-white/10">
+                <span
+                  className="rounded-full bg-black/75 px-2 py-1 text-[11px] font-medium text-white shadow-sm ring-1 ring-white/10"
+                  style={{ transform: `translateX(${hoverState.pointerOffset}px)` }}
+                >
                   {formatVideoTime(hoverState.time)}
                 </span>
               </div>
@@ -744,186 +888,120 @@ export function VideoPlayer({
               onPointerDown={handleScrubStart}
               onPointerUp={handleScrubEnd}
               onChange={(event) => seekTo(Number(event.currentTarget.value))}
-              className="h-1.5 w-full cursor-pointer appearance-none rounded-full accent-primary-500 disabled:cursor-default disabled:opacity-50 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow"
+              className="h-1 w-full cursor-pointer appearance-none rounded-full disabled:cursor-default disabled:opacity-50 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-1 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-sm [&::-webkit-slider-thumb]:bg-white/92 [&::-webkit-slider-thumb]:shadow-[0_0_8px_rgba(0,0,0,0.45)]"
               style={progressStyle}
               aria-label="播放进度"
             />
           </div>
 
-          <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-            <div className="flex min-w-0 items-center gap-1.5">
-              <button
-                type="button"
-                onClick={togglePlay}
-                className={cn(
-                  "flex items-center justify-center rounded-full bg-white/12 text-white/90 transition hover:bg-white/18 hover:text-white",
-                  "size-7",
-                )}
-                title={isPlaying ? "暂停" : "播放"}
-                aria-label={isPlaying ? "暂停" : "播放"}
-              >
-                {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="ml-0.5 h-4 w-4" />}
-              </button>
-              <button
-                type="button"
-                onClick={() => skipBy(-SKIP_SECONDS)}
-                className={cn(
-                  "flex items-center justify-center rounded-full bg-white/12 text-white/85 transition hover:bg-white/18 hover:text-white",
-                  "size-7",
-                )}
-                title="后退 5 秒"
-                aria-label="后退 5 秒"
-              >
-                <Rewind className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => skipBy(SKIP_SECONDS)}
-                className={cn(
-                  "flex items-center justify-center rounded-full bg-white/12 text-white/85 transition hover:bg-white/18 hover:text-white",
-                  "size-7",
-                )}
-                title="前进 5 秒"
-                aria-label="前进 5 秒"
-              >
-                <FastForward className="h-4 w-4" />
-              </button>
-              <div
-                className={cn(
-                  "ml-1 flex items-center whitespace-nowrap tabular-nums text-white/78",
-                  isDetail ? "text-[11px]" : "text-[12px]",
-                )}
-              >
-                {isEditingTime ? (
-                  <input
-                    value={timeInputValue}
-                    onChange={(event) => setTimeInputValue(event.currentTarget.value)}
-                    onBlur={commitTimeInput}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        commitTimeInput();
-                      } else if (event.key === "Escape") {
-                        setIsEditingTime(false);
-                        setTimeInputValue(String(Math.floor(currentTime)));
-                      }
-                    }}
-                    className="h-6 w-16 rounded-full border border-white/10 bg-white/12 px-2 text-center text-[12px] text-white outline-none"
-                    autoFocus
-                    aria-label="跳转到秒数"
-                  />
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTimeInputValue(String(Math.floor(currentTime)));
-                      setIsEditingTime(true);
-                    }}
-                    className="rounded-full px-1.5 py-1 transition hover:bg-white/12 hover:text-white"
-                    title="跳转到指定秒数"
-                  >
-                    {formatVideoTime(currentTime)}
-                  </button>
-                )}
-                <span className="px-0.5">/</span>
-                <span>{formatVideoTime(duration)}</span>
-              </div>
-            </div>
+          <div
+            className={cn(
+              "shrink-0 whitespace-nowrap tabular-nums text-white/[0.58]",
+              isDetail ? "text-[11px]" : "text-[13px]",
+            )}
+          >
+            {formatVideoTime(duration)}
+          </div>
 
-            <div className="flex flex-shrink-0 items-center gap-1.5">
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              onClick={toggleMuted}
+              className={cn(
+                "flex items-center justify-center rounded-sm text-white/60 transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45",
+                isDetail ? "size-7" : "size-8",
+              )}
+              title={isMuted ? "取消静音" : "静音"}
+              aria-label={isMuted ? "取消静音" : "静音"}
+            >
+              {isMuted ? (
+                <VolumeX className={cn(isDetail ? "h-4 w-4" : "h-5 w-5")} />
+              ) : (
+                <Volume2 className={cn(isDetail ? "h-4 w-4" : "h-5 w-5")} />
+              )}
+            </button>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value={isMuted ? 0 : volume}
+              onChange={(event) => setVideoVolume(Number(event.currentTarget.value))}
+              className={cn(
+                "h-1 cursor-pointer appearance-none rounded-full [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-none",
+                isDetail
+                  ? "w-11 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:w-2.5"
+                  : "w-20 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3",
+              )}
+              style={volumeStyle}
+              aria-label="音量"
+              title="音量"
+            />
+            <div ref={playbackRateMenuRef} className="relative">
               <button
                 type="button"
-                onClick={toggleMuted}
+                onClick={() => setIsPlaybackRateMenuOpen((current) => !current)}
                 className={cn(
-                  "flex items-center justify-center rounded-full bg-white/12 text-white/85 transition hover:bg-white/18 hover:text-white",
-                  "size-7",
+                  "flex items-center justify-center rounded-sm px-1.5 font-medium text-white/[0.66] outline-none transition hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white/45",
+                  isDetail ? "h-7 min-w-9 text-[11px]" : "h-8 min-w-11 text-[12px]",
                 )}
-                title={isMuted ? "取消静音" : "静音"}
-                aria-label={isMuted ? "取消静音" : "静音"}
+                title="播放速度"
+                aria-label="播放速度"
+                aria-haspopup="menu"
+                aria-expanded={isPlaybackRateMenuOpen}
               >
-                {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+                {playbackRate}x
               </button>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.01"
-                value={isMuted ? 0 : volume}
-                onChange={(event) => setVideoVolume(Number(event.currentTarget.value))}
-                className={cn(
-                  "h-1.5 cursor-pointer appearance-none rounded-full bg-white/25 accent-white [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white",
-                  isDetail
-                    ? "w-14 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3"
-                    : "w-16 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3",
-                )}
-                aria-label="音量"
-                title="音量"
-              />
-              <div ref={playbackRateMenuRef} className="relative">
-                <button
-                  type="button"
-                  onClick={() => setIsPlaybackRateMenuOpen((current) => !current)}
-                  className={cn(
-                    "flex h-7 min-w-12 items-center justify-center rounded-full bg-white/12 px-2 font-medium text-white outline-none transition hover:bg-white/18",
-                    isDetail ? "text-[11px]" : "text-[12px]",
-                  )}
-                  title="播放速度"
+              {isPlaybackRateMenuOpen && (
+                <div
+                  className="absolute bottom-full right-0 z-30 mb-2 w-28 overflow-hidden rounded-md bg-neutral-200/95 py-1 text-neutral-900 shadow-[0_14px_28px_rgba(0,0,0,0.3)] backdrop-blur"
+                  role="menu"
                   aria-label="播放速度"
-                  aria-haspopup="menu"
-                  aria-expanded={isPlaybackRateMenuOpen}
                 >
-                  {playbackRate}x
-                </button>
-                {isPlaybackRateMenuOpen && (
-                  <div
-                    className="absolute bottom-full right-0 z-30 mb-2 w-28 overflow-hidden rounded-lg bg-neutral-200/95 py-1 text-neutral-900 shadow-[0_14px_28px_rgba(0,0,0,0.3)] backdrop-blur"
-                    role="menu"
-                    aria-label="播放速度"
-                  >
-                    {PLAYBACK_RATES.map((rate) => {
-                      const isSelected = playbackRate === rate;
-                      return (
-                        <button
-                          key={rate}
-                          type="button"
-                          onClick={() => setVideoPlaybackRate(rate)}
-                          className={cn(
-                            "flex h-7 w-full items-center gap-1.5 px-2.5 text-left text-[12px] font-medium transition",
-                            isSelected
-                              ? "bg-blue-600 text-white"
-                              : "text-neutral-900 hover:bg-neutral-300/70",
-                          )}
-                          role="menuitemradio"
-                          aria-checked={isSelected}
-                        >
-                          <span className="flex w-3.5 flex-shrink-0 justify-center">
-                            {isSelected && <Check className="h-3.5 w-3.5 stroke-[3]" />}
-                          </span>
-                          <span>{rate}x</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-              {onToggleFullscreen && (
-                <button
-                  type="button"
-                  onClick={onToggleFullscreen}
-                  className={cn(
-                    "flex items-center justify-center rounded-full bg-white/12 text-white/85 transition hover:bg-white/18 hover:text-white",
-                    "size-7",
-                  )}
-                  title={isFullscreen ? "退出全屏" : "全屏"}
-                  aria-label={isFullscreen ? "退出全屏" : "全屏"}
-                >
-                  {isFullscreen ? (
-                    <Minimize2 className="h-4 w-4" />
-                  ) : (
-                    <Maximize2 className="h-4 w-4" />
-                  )}
-                </button>
+                  {PLAYBACK_RATES.map((rate) => {
+                    const isSelected = playbackRate === rate;
+                    return (
+                      <button
+                        key={rate}
+                        type="button"
+                        onClick={() => setVideoPlaybackRate(rate)}
+                        className={cn(
+                          "flex h-7 w-full items-center gap-1.5 px-2.5 text-left text-[12px] font-medium transition",
+                          isSelected
+                            ? "bg-blue-600 text-white"
+                            : "text-neutral-900 hover:bg-neutral-300/70",
+                        )}
+                        role="menuitemradio"
+                        aria-checked={isSelected}
+                      >
+                        <span className="flex w-3.5 shrink-0 justify-center">
+                          {isSelected && <Check className="h-3.5 w-3.5 stroke-[3]" />}
+                        </span>
+                        <span>{rate}x</span>
+                      </button>
+                    );
+                  })}
+                </div>
               )}
             </div>
+            {onToggleFullscreen && (
+              <button
+                type="button"
+                onClick={onToggleFullscreen}
+                className={cn(
+                  "flex items-center justify-center rounded-sm text-white/60 transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/45",
+                  isDetail ? "size-7" : "size-8",
+                )}
+                title={isFullscreen ? "退出全屏" : "全屏"}
+                aria-label={isFullscreen ? "退出全屏" : "全屏"}
+              >
+                {isFullscreen ? (
+                  <Minimize2 className={cn(isDetail ? "h-4 w-4" : "h-5 w-5")} />
+                ) : (
+                  <Maximize2 className={cn(isDetail ? "h-4 w-4" : "h-5 w-5")} />
+                )}
+              </button>
+            )}
           </div>
         </div>
       </div>

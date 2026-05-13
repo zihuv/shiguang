@@ -16,14 +16,11 @@ export function useDetailPreview({ file, width }: { file: FileItem; width: numbe
   const [previewError, setPreviewError] = useState(false);
   const [isImageOriginalOpen, setIsImageOriginalOpen] = useState(false);
   const [isImageOriginalLoading, setIsImageOriginalLoading] = useState(false);
-  const [isVideoPlayerOpen, setIsVideoPlayerOpen] = useState(false);
-  const [isVideoPlayerLoading, setIsVideoPlayerLoading] = useState(false);
   const previewType = getFilePreviewMode(file.ext);
   const usesThumbnailPreview = previewType === "image" || previewType === "thumbnail";
   const thumbnailRefreshVersion = useThumbnailRefreshStore(
     (state) => state.fileVersions[file.id] ?? 0,
   );
-  const videoLoadVersionRef = useRef(0);
   const imageLoadVersionRef = useRef(0);
   const previewWidth = Math.max(160, width - 28);
   const previewHeight = Math.round((previewWidth * 9) / 16);
@@ -36,9 +33,6 @@ export function useDetailPreview({ file, width }: { file: FileItem; width: numbe
     setPreviewError(false);
     setIsImageOriginalOpen(false);
     setIsImageOriginalLoading(false);
-    setIsVideoPlayerOpen(false);
-    setIsVideoPlayerLoading(false);
-    videoLoadVersionRef.current += 1;
     imageLoadVersionRef.current += 1;
 
     if (!usesThumbnailPreview) {
@@ -177,37 +171,6 @@ export function useDetailPreview({ file, width }: { file: FileItem; width: numbe
     };
   }, [videoPosterSrc]);
 
-  const handleOpenVideoPlayer = async () => {
-    if (previewType !== "video" || isVideoPlayerOpen || isVideoPlayerLoading) {
-      return;
-    }
-
-    const requestVersion = ++videoLoadVersionRef.current;
-    setPreviewError(false);
-    setIsVideoPlayerLoading(true);
-
-    try {
-      const src = await getFileSrc(file.path);
-      if (videoLoadVersionRef.current !== requestVersion) {
-        if (src.startsWith("blob:")) {
-          URL.revokeObjectURL(src);
-        }
-        return;
-      }
-
-      if (src) {
-        setImageSrc(src);
-        setIsVideoPlayerOpen(true);
-      } else {
-        setPreviewError(true);
-      }
-    } finally {
-      if (videoLoadVersionRef.current === requestVersion) {
-        setIsVideoPlayerLoading(false);
-      }
-    }
-  };
-
   const handleOpenOriginalImage = async () => {
     if (previewType !== "image" || isImageOriginalOpen || isImageOriginalLoading) {
       return;
@@ -241,10 +204,8 @@ export function useDetailPreview({ file, width }: { file: FileItem; width: numbe
 
   return {
     handleOpenOriginalImage,
-    handleOpenVideoPlayer,
     imageSrc,
     isImageOriginalOpen,
-    isVideoPlayerOpen,
     previewError,
     previewType,
     textContent,

@@ -2,16 +2,20 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FileItem } from "@/stores/fileTypes";
 
-const { getFilePreviewMode, getFileSrc, rememberPreviewImageSrc } = vi.hoisted(() => ({
-  getFilePreviewMode: vi.fn(),
-  getFileSrc: vi.fn(),
-  rememberPreviewImageSrc: vi.fn(),
-}));
+const { getFilePreviewMode, getFileSrc, getGeneratedThumbnailSrc, rememberPreviewImageSrc } =
+  vi.hoisted(() => ({
+    getFilePreviewMode: vi.fn(),
+    getFileSrc: vi.fn(),
+    getGeneratedThumbnailSrc: vi.fn(),
+    rememberPreviewImageSrc: vi.fn(),
+  }));
 
 vi.mock("@/utils", () => ({
   getFilePreviewMode,
   getFileSrc,
+  getGeneratedThumbnailSrc,
   rememberPreviewImageSrc,
+  resolveThumbnailRequestMaxEdge: vi.fn(() => 768),
 }));
 
 vi.mock("@/components/FileTypeIcon", () => ({
@@ -56,6 +60,7 @@ describe("ThumbnailItem", () => {
   beforeEach(() => {
     getFilePreviewMode.mockReset();
     getFileSrc.mockReset();
+    getGeneratedThumbnailSrc.mockReset();
     rememberPreviewImageSrc.mockReset();
     getFilePreviewMode.mockReturnValue("image");
   });
@@ -94,6 +99,35 @@ describe("ThumbnailItem", () => {
         "src",
         "shiguang-file://asset/original",
       ),
+    );
+  });
+
+  it("loads generated thumbnails for video strip items", async () => {
+    getFilePreviewMode.mockReturnValue("video");
+    getGeneratedThumbnailSrc.mockResolvedValue("shiguang-file://asset/video-thumbnail");
+
+    render(
+      <ThumbnailItem
+        file={createFile({ ext: "mp4", name: "clip.mp4", path: "/library/clip.mp4" })}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("img", { name: "clip.mp4" })).toHaveAttribute(
+        "src",
+        "shiguang-file://asset/video-thumbnail",
+      ),
+    );
+    expect(getFileSrc).not.toHaveBeenCalled();
+    expect(getGeneratedThumbnailSrc).toHaveBeenCalledWith(
+      {
+        path: "/library/clip.mp4",
+        ext: "mp4",
+        width: 800,
+        height: 600,
+        size: 1024,
+      },
+      768,
     );
   });
 });

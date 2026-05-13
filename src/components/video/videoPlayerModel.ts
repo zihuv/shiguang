@@ -1,5 +1,5 @@
 export const SKIP_SECONDS = 5;
-export const HOVER_PREVIEW_DELAY_MS = 90;
+export const HOVER_PREVIEW_DELAY_MS = 32;
 export const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 export function formatVideoTime(value: number) {
@@ -17,6 +17,38 @@ export function formatVideoTime(value: number) {
   }
 
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+export function parseVideoTimeInput(value: string) {
+  const trimmedValue = value.trim();
+  if (!trimmedValue) {
+    return Number.NaN;
+  }
+
+  if (!trimmedValue.includes(":")) {
+    return Number.parseFloat(trimmedValue);
+  }
+
+  const parts = trimmedValue.split(":");
+  if (parts.length < 2 || parts.length > 3) {
+    return Number.NaN;
+  }
+
+  let totalSeconds = 0;
+  for (const part of parts) {
+    if (!part.trim()) {
+      return Number.NaN;
+    }
+
+    const numericPart = Number.parseFloat(part);
+    if (!Number.isFinite(numericPart) || numericPart < 0) {
+      return Number.NaN;
+    }
+
+    totalSeconds = totalSeconds * 60 + numericPart;
+  }
+
+  return totalSeconds;
 }
 
 export function clampTime(value: number, duration: number) {

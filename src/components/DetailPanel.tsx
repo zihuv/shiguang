@@ -207,10 +207,8 @@ function FileDetailPanel({ file, width }: { file: FileItem; width: number }) {
   });
   const {
     handleOpenOriginalImage,
-    handleOpenVideoPlayer,
     imageSrc,
     isImageOriginalOpen,
-    isVideoPlayerOpen,
     previewError,
     previewType,
     textContent,
@@ -229,9 +227,7 @@ function FileDetailPanel({ file, width }: { file: FileItem; width: number }) {
           file={file}
           imageSrc={imageSrc}
           isImageOriginalOpen={isImageOriginalOpen}
-          isVideoPlayerOpen={isVideoPlayerOpen}
           onOpenOriginalImage={handleOpenOriginalImage}
-          onOpenVideoPlayer={handleOpenVideoPlayer}
           previewError={previewError}
           previewType={previewType}
           textContent={textContent}

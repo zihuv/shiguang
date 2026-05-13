@@ -4,6 +4,7 @@ import {
   clampVolume,
   formatVideoTime,
   getProgressPercent,
+  parseVideoTimeInput,
 } from "@/components/video/videoPlayerModel";
 
 describe("videoPlayerModel", () => {
@@ -20,6 +21,16 @@ describe("videoPlayerModel", () => {
     expect(clampTime(150, 120)).toBe(120);
     expect(clampTime(42, Number.NaN)).toBe(42);
     expect(clampTime(-2, 0)).toBe(0);
+  });
+
+  it("parses video time inputs", () => {
+    expect(parseVideoTimeInput("9")).toBe(9);
+    expect(parseVideoTimeInput("0:09")).toBe(9);
+    expect(parseVideoTimeInput("1:05")).toBe(65);
+    expect(parseVideoTimeInput("1:02:03")).toBe(3723);
+    expect(Number.isNaN(parseVideoTimeInput(""))).toBe(true);
+    expect(Number.isNaN(parseVideoTimeInput("1:"))).toBe(true);
+    expect(Number.isNaN(parseVideoTimeInput("a:b"))).toBe(true);
   });
 
   it("clamps volume and progress percentages", () => {

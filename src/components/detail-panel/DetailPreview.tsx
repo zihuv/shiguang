@@ -1,5 +1,4 @@
 import FileTypeIcon from "@/components/FileTypeIcon";
-import { VideoPlayer } from "@/components/video/VideoPlayer";
 import type { FileItem } from "@/stores/fileTypes";
 import type { FilePreviewMode } from "@/utils";
 
@@ -7,9 +6,7 @@ interface DetailPreviewProps {
   file: FileItem;
   imageSrc: string;
   isImageOriginalOpen: boolean;
-  isVideoPlayerOpen: boolean;
   onOpenOriginalImage: () => void | Promise<void>;
-  onOpenVideoPlayer: () => void | Promise<void>;
   previewError: boolean;
   previewType: FilePreviewMode;
   textContent: string;
@@ -83,64 +80,16 @@ function ThumbnailPreview({
 
 function VideoPreview({
   file,
-  imageSrc,
-  isVideoPlayerOpen,
-  onOpenVideoPlayer,
-  previewError,
   videoPosterSrc,
-}: Pick<
-  DetailPreviewProps,
-  | "file"
-  | "imageSrc"
-  | "isVideoPlayerOpen"
-  | "onOpenVideoPlayer"
-  | "previewError"
-  | "videoPosterSrc"
->) {
-  if (isVideoPlayerOpen && imageSrc) {
-    return (
-      <VideoPlayer
-        src={imageSrc}
-        autoPlay
-        fit="cover"
-        poster={videoPosterSrc || undefined}
-        variant="detail"
-      />
-    );
-  }
-
+}: Pick<DetailPreviewProps, "file" | "videoPosterSrc">) {
   return (
-    <button
-      type="button"
-      onClick={() => void onOpenVideoPlayer()}
-      className="group relative h-full w-full overflow-hidden bg-black text-left"
-      title="播放视频预览"
-    >
+    <div className="relative h-full w-full overflow-hidden bg-black">
       {videoPosterSrc ? (
-        <img
-          src={videoPosterSrc}
-          alt={file.name}
-          className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.02]"
-        />
+        <img src={videoPosterSrc} alt={file.name} className="h-full w-full object-cover" />
       ) : (
-        <div className="absolute inset-0 bg-gradient-to-br from-slate-700 via-slate-800 to-slate-900" />
+        <GenericFilePreview file={file} />
       )}
-
-      <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/20 to-black/10" />
-
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/90 text-gray-900 shadow-lg transition-transform duration-200 group-hover:scale-105">
-          <svg className="ml-0.5 h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M8 5.14v13.72c0 .78.85 1.26 1.52.86l10.2-6.86a1 1 0 000-1.72l-10.2-6.86A1 1 0 008 5.14z" />
-          </svg>
-        </div>
-      </div>
-      {previewError && (
-        <div className="absolute bottom-2 right-2 rounded bg-red-500/85 px-2 py-1 text-[11px] font-medium text-white">
-          加载失败
-        </div>
-      )}
-    </button>
+    </div>
   );
 }
 

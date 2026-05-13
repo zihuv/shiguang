@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import type { FileItem } from "@/stores/fileTypes";
 import FileTypeIcon from "@/components/FileTypeIcon";
-import { getFilePreviewMode, getFileSrc, rememberPreviewImageSrc } from "@/utils";
+import {
+  getFilePreviewMode,
+  getFileSrc,
+  getGeneratedThumbnailSrc,
+  rememberPreviewImageSrc,
+  resolveThumbnailRequestMaxEdge,
+} from "@/utils";
 
 function revokeBlobUrl(src: string | null) {
   if (src?.startsWith("blob:")) {
@@ -14,6 +20,7 @@ export function ThumbnailItem({ file }: { file: FileItem }) {
   const [src, setSrc] = useState<string | null>(null);
   const srcRef = useRef<string | null>(null);
   const previewType = getFilePreviewMode(ext);
+  const thumbnailMaxEdge = resolveThumbnailRequestMaxEdge(56, 56, { devicePixelRatioCap: 2 });
 
   useEffect(() => {
     let mounted = true;
@@ -21,13 +28,27 @@ export function ThumbnailItem({ file }: { file: FileItem }) {
     srcRef.current = null;
     setSrc(null);
 
-    if (previewType !== "image") {
+    if (previewType !== "image" && previewType !== "thumbnail" && previewType !== "video") {
       return () => {
         mounted = false;
       };
     }
 
-    getFileSrc(path).then((imageSrc) => {
+    const thumbnailSrcPromise =
+      previewType === "image"
+        ? getFileSrc(path)
+        : getGeneratedThumbnailSrc(
+            {
+              path: file.path,
+              ext: file.ext,
+              width: file.width,
+              height: file.height,
+              size: file.size,
+            },
+            thumbnailMaxEdge,
+          );
+
+    thumbnailSrcPromise.then((imageSrc) => {
       if (!mounted) {
         revokeBlobUrl(imageSrc);
         return;
@@ -47,7 +68,16 @@ export function ThumbnailItem({ file }: { file: FileItem }) {
       revokeBlobUrl(srcRef.current);
       srcRef.current = null;
     };
-  }, [path, previewType]);
+  }, [
+    file.ext,
+    file.height,
+    file.path,
+    file.size,
+    file.width,
+    path,
+    previewType,
+    thumbnailMaxEdge,
+  ]);
 
   useEffect(() => {
     if (src) {
@@ -55,7 +85,7 @@ export function ThumbnailItem({ file }: { file: FileItem }) {
     }
   }, [path, src]);
 
-  if (!src || previewType !== "image") {
+  if (!src || (previewType !== "image" && previewType !== "thumbnail" && previewType !== "video")) {
     return (
       <div className="h-full w-full bg-gray-900/90">
         <UnsupportedThumbnail ext={ext} />
