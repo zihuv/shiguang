@@ -20,7 +20,7 @@ export type {
   ThumbnailPlan,
 } from "../src/lib/thumbnailPolicy";
 
-export const THUMBNAIL_CACHE_VERSION = "v4";
+export const THUMBNAIL_CACHE_VERSION = "v7";
 export const THUMBNAIL_MAX_EDGE = 768;
 export const THUMBNAIL_WEBP_QUALITY = 85;
 export type ThumbnailStatus = "pending" | "ready" | "failed" | "skipped";

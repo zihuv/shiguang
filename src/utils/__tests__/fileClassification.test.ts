@@ -32,6 +32,8 @@ describe("fileClassification", () => {
     expect(getFilePreviewMode("mp4")).toBe("video");
     expect(getFilePreviewMode("3g2")).toBe("video");
     expect(getFilePreviewMode("pdf")).toBe("thumbnail");
+    expect(getFilePreviewMode("docx")).toBe("thumbnail");
+    expect(getFilePreviewMode("pptx")).toBe("thumbnail");
     expect(getFilePreviewMode("md")).toBe("text");
     expect(getFilePreviewMode("exe")).toBe("none");
 
@@ -39,6 +41,8 @@ describe("fileClassification", () => {
     expect(canPreviewFile("mp3")).toBe(false);
     expect(canGenerateThumbnail("psd")).toBe(true);
     expect(canGenerateThumbnail("heif")).toBe(true);
+    expect(canGenerateThumbnail("docx")).toBe(true);
+    expect(canGenerateThumbnail("pptx")).toBe(true);
     expect(canGenerateThumbnail("txt")).toBe(false);
   });
 
@@ -77,6 +81,16 @@ describe("fileClassification", () => {
       thumbnailRuntime: "main",
       aiAnalyzable: false,
       visualSearchable: false,
+    });
+    expect(getFileFormatCapabilities("docx")).toMatchObject({
+      group: "document",
+      thumbnailRuntime: "main",
+      textPreviewable: false,
+    });
+    expect(getFileFormatCapabilities("pptx")).toMatchObject({
+      group: "document",
+      thumbnailRuntime: "main",
+      textPreviewable: false,
     });
     expect(getFileFormatCapabilities("unknown")).toMatchObject({
       group: null,

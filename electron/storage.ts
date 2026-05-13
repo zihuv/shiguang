@@ -15,6 +15,7 @@ import {
   THUMBNAIL_MAX_EDGE,
   THUMBNAIL_WEBP_QUALITY,
 } from "./thumbnail";
+import { buildDocumentThumbnailPngBuffer, isDocumentThumbnailExt } from "./document-thumbnail";
 import { getDefaultLibraryDirName } from "./app/environment";
 
 const LIBRARY_STATE_FILE = "library-state.json";
@@ -339,6 +340,21 @@ async function buildThumbnailBuffer(
   const normalizedExt = normalizeThumbnailExt(ext);
   if (normalizedExt === "pdf") {
     return buildPdfThumbnailBuffer(filePath, maxEdge);
+  }
+  if (isDocumentThumbnailExt(normalizedExt)) {
+    const documentThumbnail = await buildDocumentThumbnailPngBuffer(
+      filePath,
+      normalizedExt,
+      maxEdge,
+    );
+    return sharp(documentThumbnail)
+      .rotate()
+      .resize(maxEdge, maxEdge, {
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .webp({ quality: THUMBNAIL_WEBP_QUALITY })
+      .toBuffer();
   }
   if (normalizedExt === "psd") {
     return buildPsdThumbnailBuffer(filePath, maxEdge);

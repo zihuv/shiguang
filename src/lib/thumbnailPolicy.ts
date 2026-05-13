@@ -14,6 +14,7 @@ export type ThumbnailDecisionReason =
   | "video"
   | "psd"
   | "pdf"
+  | "document"
   | "format"
   | "pixel-threshold"
   | "edge-threshold"
@@ -72,6 +73,11 @@ export function decideThumbnailGeneration(input: ThumbnailDecisionInput): Thumbn
 
   if (ext === "pdf") {
     return { shouldGenerate: true, reason: "pdf" };
+  }
+
+  const capabilities = getFileFormatCapabilities(ext);
+  if (capabilities.group === "document" && capabilities.thumbnailRuntime === "main") {
+    return { shouldGenerate: true, reason: "document" };
   }
 
   if (ext === "heic" || ext === "heif") {

@@ -207,22 +207,33 @@ export const FILE_FORMAT_DEFINITIONS: readonly FileFormatDefinition[] = [
     textPreviewable: true,
     textPreviewOrder: 0,
   }),
-  documentFormat("doc", "word", "application/msword", { wordFile: true }),
+  documentFormat("doc", "word", "application/msword", {
+    wordFile: true,
+    thumbnailRuntime: "main",
+  }),
   documentFormat(
     "docx",
     "word",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    { wordFile: true },
+    { wordFile: true, thumbnailRuntime: "main" },
   ),
-  documentFormat("rtf", "word", "application/rtf", { wordFile: true }),
-  documentFormat("odt", "word", "application/vnd.oasis.opendocument.text", { wordFile: true }),
+  documentFormat("rtf", "word", "application/rtf", {
+    wordFile: true,
+    thumbnailRuntime: "main",
+  }),
+  documentFormat("odt", "word", "application/vnd.oasis.opendocument.text", {
+    wordFile: true,
+    thumbnailRuntime: "main",
+  }),
   documentFormat("htm", "word", "text/html; charset=utf-8", {
     wordFile: true,
+    thumbnailRuntime: "main",
     textPreviewable: true,
     textPreviewOrder: 6,
   }),
   documentFormat("html", "word", "text/html; charset=utf-8", {
     wordFile: true,
+    thumbnailRuntime: "main",
     codeFile: true,
     codeFileOrder: 5,
     textPreviewable: true,
@@ -253,10 +264,11 @@ export const FILE_FORMAT_DEFINITIONS: readonly FileFormatDefinition[] = [
     "pptx",
     "presentation",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    { presentationFile: true },
+    { presentationFile: true, thumbnailRuntime: "main" },
   ),
   documentFormat("odp", "presentation", "application/vnd.oasis.opendocument.presentation", {
     presentationFile: true,
+    thumbnailRuntime: "main",
   }),
   documentFormat("pps", "presentation", "application/vnd.ms-powerpoint", {
     presentationFile: true,
@@ -265,7 +277,7 @@ export const FILE_FORMAT_DEFINITIONS: readonly FileFormatDefinition[] = [
     "ppsx",
     "presentation",
     "application/vnd.openxmlformats-officedocument.presentationml.slideshow",
-    { presentationFile: true },
+    { presentationFile: true, thumbnailRuntime: "main" },
   ),
 
   archiveFormat("zip", "application/zip"),

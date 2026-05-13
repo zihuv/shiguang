@@ -50,6 +50,7 @@
     "@webtoon/psd": "^0.4.0",
     "better-sqlite3": "^12.5.0",
     "chokidar": "^4.0.3",
+    "docx-preview": "^0.3.7",
     "drizzle-orm": "^0.45.2",
     "electron-log": "^5.4.3",
     "electron-updater": "^6.8.3",
