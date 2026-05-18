@@ -41,10 +41,6 @@ export function shouldUseFrameImageFetch(imageUrl: string): boolean {
   return isPixivImageUrl(imageUrl);
 }
 
-export function shouldUsePageImageFetch(imageUrl: string): boolean {
-  return !isPixivImageUrl(imageUrl);
-}
-
 export function isImageNotFoundError(error: unknown): boolean {
   return error instanceof Error && /^HTTP 404(?:\s|$)/.test(error.message);
 }
@@ -152,57 +148,6 @@ async function fetchImageBytesFromBrowser(imageUrl: string): Promise<FetchImageR
     bytes,
     contentType,
     finalUrl: response.url || imageUrl,
-  };
-}
-
-async function fetchImageBytesFromPage(
-  tabId: number | undefined,
-  imageUrl: string,
-): Promise<FetchImageResult> {
-  if (!tabId) {
-    throw new Error("当前标签页不可用，无法使用页面上下文取图");
-  }
-
-  const results = await chrome.scripting.executeScript({
-    target: { tabId },
-    world: "MAIN",
-    func: async (url: string) => {
-      const response = await fetch(url, {
-        cache: "force-cache",
-        credentials: "include",
-      });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status} ${response.statusText || ""}`.trim());
-      }
-
-      const contentType = response.headers.get("content-type") || "application/octet-stream";
-      const blob = await response.blob();
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onerror = () => reject(new Error("读取图片数据失败"));
-        reader.onloadend = () => resolve(String(reader.result || ""));
-        reader.readAsDataURL(blob);
-      });
-
-      return {
-        dataUrl,
-        contentType,
-        finalUrl: response.url || url,
-      };
-    },
-    args: [imageUrl],
-  });
-
-  const result = results?.[0]?.result;
-  if (!result?.dataUrl) {
-    throw new Error("页面上下文未返回图片数据");
-  }
-
-  const parsed = dataUrlToFetchResult(result.dataUrl);
-  return {
-    ...parsed,
-    contentType: result.contentType || parsed.contentType,
-    finalUrl: result.finalUrl || imageUrl,
   };
 }
 
@@ -377,17 +322,7 @@ async function resolveImageBytesFromUrl(
       }
     }
 
-    if (!shouldUsePageImageFetch(imageUrl)) {
-      throw browserFetchError;
-    }
-
-    try {
-      return await fetchImageBytesFromPage(tabId, imageUrl);
-    } catch (pageFetchError) {
-      throw new Error(
-        `浏览器侧取图失败：${getErrorMessage(browserFetchError)}；页面上下文取图失败：${getErrorMessage(pageFetchError)}`,
-      );
-    }
+    throw browserFetchError;
   }
 }
 

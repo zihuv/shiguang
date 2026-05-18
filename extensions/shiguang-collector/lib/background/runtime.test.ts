@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  buildImageFetchInit,
-  isImageNotFoundError,
-  shouldUseFrameImageFetch,
-  shouldUsePageImageFetch,
-} from "./runtime";
+import { buildImageFetchInit, isImageNotFoundError, shouldUseFrameImageFetch } from "./runtime";
 
 describe("background image fetch options", () => {
   it("keeps fetch options focused on cached browser credentials", () => {
@@ -21,15 +16,6 @@ describe("background image fetch options", () => {
       ),
     ).toBe(true);
     expect(shouldUseFrameImageFetch("https://example.com/image.jpg")).toBe(false);
-  });
-
-  it("skips page-context fetches for Pixiv image hosts to avoid CORS noise", () => {
-    expect(
-      shouldUsePageImageFetch(
-        "https://i.pximg.net/img-original/img/2022/09/13/16/22/07/101199573_p0.jpg",
-      ),
-    ).toBe(false);
-    expect(shouldUsePageImageFetch("https://example.com/image.jpg")).toBe(true);
   });
 
   it("recognizes missing image candidates before trying heavier fetch fallbacks", () => {

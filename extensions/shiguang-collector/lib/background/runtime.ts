@@ -3,12 +3,7 @@
 import type { CollectionMetadata, ToastType } from "../types";
 import { normalizeOptionalFolderId, parseFolderId } from "../folders";
 import { filenameFromImageUrl, resolveImageBytes } from "./image-bytes";
-export {
-  buildImageFetchInit,
-  isImageNotFoundError,
-  shouldUseFrameImageFetch,
-  shouldUsePageImageFetch,
-} from "./image-bytes";
+export { buildImageFetchInit, isImageNotFoundError, shouldUseFrameImageFetch } from "./image-bytes";
 import { BackgroundPreferences, DEFAULT_IMPORT_CONCURRENCY } from "./preferences";
 import {
   asRecord,
