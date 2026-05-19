@@ -58,6 +58,7 @@ export default defineContentScript({
       try {
         const result = await collector.requestCollectImage(imageUrl, {
           collectionPayload,
+          forceTargetFolder: true,
           missingImageMessage: "未找到可采集的图片",
           notifyOnSuccess: true,
           successMessage: "已发送到拾光",
