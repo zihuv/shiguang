@@ -10,6 +10,11 @@ import {
   importClipboardFile,
   importFilePath,
 } from "./import-core";
+import {
+  importTaskSource,
+  isFilePathImportItem,
+  normalizeImportTaskItems,
+} from "./import-task-items";
 import { runPostImportPipeline } from "./post-import-pipeline";
 import { isTerminalTaskStatus, scheduleTerminalTaskCleanup } from "./task-retention";
 
@@ -39,82 +44,44 @@ type ImportTaskEntry = NonNullable<
   AppState["importTasks"] extends Map<string, infer Entry> ? Entry : never
 >;
 
-function importTaskSource(item: ImportTaskItem): string {
-  if (item.kind === "base64_image") {
-    return `clipboard.${item.ext ?? "png"}`;
-  }
-  if (item.kind === "binary_image") {
-    return `clipboard.${item.ext ?? "png"}`;
-  }
-  if (item.kind === "clipboard_file") {
-    return String(item.sourcePath ?? item.path ?? "");
-  }
-  return String(item.path ?? "");
-}
-
-function isFilePathImportItem(item: ImportTaskItem): boolean {
-  return !item.kind || item.kind === "file_path";
-}
-
 async function importTaskItem(
   state: AppState,
   item: ImportTaskItem,
   fallbackFolderId: number | null,
 ): Promise<FileRecord> {
   const folderId = item.folderId ?? fallbackFolderId;
-  if (item.kind === "base64_image") {
-    return importBytes(state, {
-      bytes: Buffer.from(String(item.base64Data ?? item.base64_data ?? ""), "base64"),
-      folderId,
-      fallbackExt: item.ext,
-      namePrefix: "paste",
-    });
+  switch (item.kind) {
+    case "base64_image":
+      return importBytes(state, {
+        bytes: Buffer.from(item.base64Data, "base64"),
+        folderId,
+        fallbackExt: item.ext,
+        namePrefix: "paste",
+      });
+    case "binary_image":
+      return importBytes(state, {
+        bytes: Buffer.from(item.bytes),
+        folderId,
+        fallbackExt: item.ext,
+        namePrefix: "paste",
+        rating: item.rating,
+        description: item.description,
+        sourceUrl: item.sourceUrl,
+        tagIds: item.tagIds,
+      });
+    case "clipboard_file":
+      return importClipboardFile(state, {
+        sourcePath: item.sourcePath,
+        folderId,
+        ext: item.ext,
+        rating: item.rating,
+        description: item.description,
+        sourceUrl: item.sourceUrl,
+        tagIds: item.tagIds,
+      });
+    case "file_path":
+      return importFilePath(state, item.path, folderId);
   }
-
-  if (item.kind === "binary_image") {
-    return importBytes(state, {
-      bytes: Buffer.from(item.bytes ?? []),
-      folderId,
-      fallbackExt: item.ext,
-      namePrefix: "paste",
-      rating: typeof item.rating === "number" ? item.rating : undefined,
-      description: typeof item.description === "string" ? item.description : undefined,
-      sourceUrl:
-        typeof item.sourceUrl === "string"
-          ? item.sourceUrl
-          : typeof item.source_url === "string"
-            ? item.source_url
-            : undefined,
-      tagIds: Array.isArray(item.tagIds)
-        ? item.tagIds.filter((tagId): tagId is number => Number.isInteger(tagId))
-        : Array.isArray(item.tag_ids)
-          ? item.tag_ids.filter((tagId): tagId is number => Number.isInteger(tagId))
-          : undefined,
-    });
-  }
-
-  if (item.kind === "clipboard_file") {
-    return importClipboardFile(state, {
-      sourcePath: String(item.sourcePath ?? item.path ?? ""),
-      folderId,
-      ext: item.ext,
-      rating: typeof item.rating === "number" ? item.rating : undefined,
-      description: typeof item.description === "string" ? item.description : undefined,
-      sourceUrl:
-        typeof item.sourceUrl === "string"
-          ? item.sourceUrl
-          : typeof item.source_url === "string"
-            ? item.source_url
-            : undefined,
-      tagIds: Array.isArray(item.tagIds)
-        ? item.tagIds.filter((tagId): tagId is number => Number.isInteger(tagId))
-        : Array.isArray(item.tag_ids)
-          ? item.tag_ids.filter((tagId): tagId is number => Number.isInteger(tagId))
-          : undefined,
-    });
-  }
-
-  return importFilePath(state, String(item.path ?? ""), folderId);
 }
 
 async function runImportTask(
@@ -230,39 +197,40 @@ function compactImportTaskEntry(entry: ImportTaskEntry): void {
 export async function startImportTask(
   state: AppState,
   window: BrowserWindow | null,
-  items: ImportTaskItem[],
+  rawItems: unknown[],
   folderId: number | null,
 ): Promise<ImportTaskSnapshot> {
+  const items = normalizeImportTaskItems(rawItems);
   const indexPath = getIndexPaths(state.db)[0] ?? state.indexPath;
-  const parentPath =
-    folderId !== null ? (getFolderById(state.db, folderId)?.path ?? indexPath) : indexPath;
   const expanded: ImportTaskItem[] = [];
   for (const item of items) {
-    if (item.kind === "file_path" || !item.kind) {
-      const p = String(item.path ?? "");
-      if (p) {
-        try {
-          const stats = await fs.stat(p);
-          if (stats.isDirectory()) {
-            const dirName = path.basename(p);
-            const destDir = path.join(parentPath, dirName);
-            const files = await collectFilesFromDirectoryWithRel(p);
-            for (const f of files) {
-              const targetFolderId =
-                f.relDir === "."
-                  ? getOrCreateFolder(state.db, destDir, [indexPath])
-                  : getOrCreateFolder(state.db, path.join(destDir, f.relDir), [indexPath]);
-              expanded.push({
-                kind: "file_path",
-                path: f.abs,
-                folderId: targetFolderId ?? folderId,
-              });
-            }
-            continue;
+    if (item.kind === "file_path") {
+      try {
+        const stats = await fs.stat(item.path);
+        if (stats.isDirectory()) {
+          const itemFolderId = item.folderId ?? folderId;
+          const parentPath =
+            itemFolderId !== null
+              ? (getFolderById(state.db, itemFolderId)?.path ?? indexPath)
+              : indexPath;
+          const dirName = path.basename(item.path);
+          const destDir = path.join(parentPath, dirName);
+          const files = await collectFilesFromDirectoryWithRel(item.path);
+          for (const f of files) {
+            const targetFolderId =
+              f.relDir === "."
+                ? getOrCreateFolder(state.db, destDir, [indexPath])
+                : getOrCreateFolder(state.db, path.join(destDir, f.relDir), [indexPath]);
+            expanded.push({
+              kind: "file_path",
+              path: f.abs,
+              folderId: targetFolderId ?? itemFolderId,
+            });
           }
-        } catch {
-          // stat failed, pass through as-is
+          continue;
         }
+      } catch {
+        // Let item-level import record the failure with the original source.
       }
     }
     expanded.push(item);

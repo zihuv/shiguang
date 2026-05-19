@@ -22,7 +22,7 @@ import {
 import { ensureDir, moveFileWithFallback } from "../file-operations";
 import { buildThumbHash, extractColorDistributionFromInput } from "../media";
 import { getThumbnailCachePath } from "../storage";
-import type { AppState, ImportTaskItem } from "../types";
+import type { AppState } from "../types";
 import {
   type CommandHandler,
   emit,
@@ -170,7 +170,7 @@ export function createFileCommands(
       startImportTask(
         state,
         window,
-        (Array.isArray(args.items) ? args.items : []) as ImportTaskItem[],
+        Array.isArray(args.items) ? args.items : [],
         optionalNumberArg(args, "folderId", "folder_id"),
       ),
     get_import_task: (args) => {

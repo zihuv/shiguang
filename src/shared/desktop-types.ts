@@ -124,21 +124,38 @@ export interface BinaryImageImportItem {
   tagIds?: number[];
 }
 
-export interface ImportTaskItem {
-  kind?: string;
-  path?: string;
-  sourcePath?: string;
-  base64Data?: string;
-  base64_data?: string;
-  bytes?: Uint8Array;
-  ext?: string;
-  rating?: number;
-  description?: string;
-  sourceUrl?: string;
-  source_url?: string;
-  tagIds?: number[];
-  tag_ids?: number[];
+interface ImportTaskItemBase {
+  folderId?: number | null;
 }
+
+export type ImportTaskItem =
+  | (ImportTaskItemBase & {
+      kind: "file_path";
+      path: string;
+    })
+  | (ImportTaskItemBase & {
+      kind: "base64_image";
+      base64Data: string;
+      ext: string;
+    })
+  | (ImportTaskItemBase & {
+      kind: "binary_image";
+      bytes: Uint8Array;
+      ext: string;
+      rating?: number;
+      description?: string;
+      sourceUrl?: string;
+      tagIds?: number[];
+    })
+  | (ImportTaskItemBase & {
+      kind: "clipboard_file";
+      sourcePath: string;
+      ext?: string;
+      rating?: number;
+      description?: string;
+      sourceUrl?: string;
+      tagIds?: number[];
+    });
 
 export interface ImportTaskItemResult {
   index: number;

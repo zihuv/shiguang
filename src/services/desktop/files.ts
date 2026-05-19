@@ -2,6 +2,7 @@ import { invokeDesktop } from "@/services/desktop/core";
 import type {
   AiMetadataTaskSnapshot,
   FileItem,
+  ImportTaskItem,
   ImportTaskSnapshot,
   PaginatedFilesResponse,
   SmartCollectionId,
@@ -228,10 +229,7 @@ export function testAiEndpoint(target: AiEndpointTarget) {
   return invokeDesktop<string>("test_ai_endpoint", { target });
 }
 
-export function startImportTask(args: {
-  items: Array<Record<string, unknown>>;
-  folderId?: number | null;
-}) {
+export function startImportTask(args: { items: ImportTaskItem[]; folderId?: number | null }) {
   return invokeDesktop<ImportTaskSnapshot>("start_import_task", args);
 }
 

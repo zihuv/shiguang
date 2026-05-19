@@ -9,6 +9,7 @@ import {
   TERMINAL_IMPORT_TASK_STATUSES,
   type BinaryImageImportItem,
   type FileItem,
+  type ImportTaskItem,
   type ImportTaskSnapshot,
 } from "@/stores/fileTypes";
 import { useFolderStore } from "@/stores/folderStore";
@@ -54,7 +55,7 @@ function decodeBase64ToBytes(base64Data: string) {
   return Uint8Array.from(atob(base64Data), (char) => char.charCodeAt(0));
 }
 
-function toImportTaskItem(item: BinaryImageImportItem) {
+function toImportTaskItem(item: BinaryImageImportItem): ImportTaskItem {
   if (item.sourcePath) {
     return {
       kind: "clipboard_file",
@@ -118,8 +119,9 @@ export const useImportStore = create<ImportStore>((set, get) => ({
         : useLibraryQueryStore.getState().selectedFolderId;
 
     try {
+      const items: ImportTaskItem[] = sourcePaths.map((path) => ({ kind: "file_path", path }));
       const task = await startImportTask({
-        items: sourcePaths.map((path) => ({ kind: "file_path", path })),
+        items,
         folderId: selectedFolderId,
       });
       set({ importTask: task });
@@ -178,8 +180,9 @@ export const useImportStore = create<ImportStore>((set, get) => ({
         : useLibraryQueryStore.getState().selectedFolderId;
 
     try {
+      const taskItems = items.map(toImportTaskItem);
       const task = await startImportTask({
-        items: items.map(toImportTaskItem),
+        items: taskItems,
         folderId: selectedFolderId,
       });
       set({ importTask: task });
