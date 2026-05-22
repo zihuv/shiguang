@@ -5,7 +5,9 @@ import path from "node:path";
 import sharp from "sharp";
 import * as WebtoonPsd from "@webtoon/psd";
 import { definePDFJSModule, renderPageAsImage } from "unpdf";
-import { isInsideAnyPath, pathHasPrefix } from "./path-utils";
+import { pathHasPrefix } from "./path-utils";
+import { getThumbnailRoot } from "./storage-paths";
+export { getThumbnailRoot, isPathAllowedForRead } from "./storage-paths";
 import {
   getThumbnailGenerationRuntimeForExt,
   normalizeThumbnailExt,
@@ -77,10 +79,6 @@ export function getDbDir(indexPath: string): string {
 
 export function getDbPath(indexPath: string): string {
   return path.join(getDbDir(indexPath), "shiguang.db");
-}
-
-export function getThumbnailRoot(indexPath: string): string {
-  return path.join(indexPath, ".shiguang", "thumbs");
 }
 
 function emptyLibraryState(): LibraryState {
@@ -233,19 +231,6 @@ export async function resolveInitialIndexPath(appDataDir: string): Promise<strin
     await persistIndexPath(appDataDir, indexPath);
   }
   return indexPath;
-}
-
-export function isPathAllowedForRead(
-  filePath: string,
-  indexPaths: string[],
-  additionalRoots: string[] = [],
-): boolean {
-  const thumbnailRoots = indexPaths.map(getThumbnailRoot);
-  return (
-    isInsideAnyPath(filePath, indexPaths) ||
-    isInsideAnyPath(filePath, thumbnailRoots) ||
-    isInsideAnyPath(filePath, additionalRoots)
-  );
 }
 
 function resolveIndexPath(indexPaths: string[], filePath: string): string | null {

@@ -39,7 +39,7 @@ afterEach(() => {
 
 describe("trash repository", () => {
   it("allows reading files from the deleted folder holding directory", async () => {
-    const { isPathAllowedForRead } = await import("../storage");
+    const { isPathAllowedForRead } = await import("../storage-paths");
     const { getDeletedFolderHoldingDir } = await import("../trash-paths");
     const tempDir = makeTempDir();
     const libraryDir = path.join(tempDir, "library");
