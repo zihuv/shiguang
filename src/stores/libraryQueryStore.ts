@@ -4,9 +4,13 @@ import { useFilterStore } from "@/stores/filterStore";
 import { useNavigationStore } from "@/stores/navigationStore";
 import { usePreviewStore } from "@/stores/previewStore";
 import { useSelectionStore } from "@/stores/selectionStore";
-import { useSmartCollectionStore } from "@/stores/smartCollectionStore";
 import { useTagStore } from "@/stores/tagStore";
-import { loadFoldersFromAccess, selectFolderFromAccess } from "@/stores/folderStoreAccess";
+import { selectFolderFromAccess } from "@/stores/folderStoreAccess";
+import {
+  patchFileInSelectionAndPreview,
+  refreshLibraryTreeAndStats,
+  refreshTagsAndSmartCollections,
+} from "@/stores/librarySurfaceSync";
 import {
   analyzeFileMetadata as analyzeFileMetadataCommand,
   extractColor,
@@ -230,14 +234,6 @@ function logVisualSearchDebugScores(result: PaginatedFilesResponse, naturalLangu
   );
 }
 
-async function refreshFolders() {
-  await loadFoldersFromAccess();
-}
-
-async function refreshSmartCollections() {
-  await useSmartCollectionStore.getState().loadStats();
-}
-
 function syncUpdatedFileAcrossStores(
   updatedFile: FileItem,
   set: (
@@ -249,17 +245,7 @@ function syncUpdatedFileAcrossStores(
   set((state) => ({
     files: state.files.map((file) => (file.id === updatedFile.id ? updatedFile : file)),
   }));
-
-  const { selectedFile } = useSelectionStore.getState();
-  if (selectedFile?.id === updatedFile.id) {
-    useSelectionStore.getState().setSelectedFile(updatedFile);
-  }
-
-  usePreviewStore.setState((state) => ({
-    previewFiles: state.previewFiles.map((file) =>
-      file.id === updatedFile.id ? updatedFile : file,
-    ),
-  }));
+  patchFileInSelectionAndPreview(updatedFile);
 }
 
 export const useLibraryQueryStore = create<LibraryQueryStore>((set, get) => ({
@@ -525,15 +511,13 @@ export const useLibraryQueryStore = create<LibraryQueryStore>((set, get) => ({
   addTagToFile: async (fileId, tagId) => {
     await addTagToFileCommand({ fileId, tagId });
     await get().loadFilesInFolder(get().selectedFolderId);
-    await useTagStore.getState().loadTags();
-    await refreshSmartCollections();
+    await refreshTagsAndSmartCollections();
   },
 
   removeTagFromFile: async (fileId, tagId) => {
     await removeTagFromFileCommand({ fileId, tagId });
     await get().loadFilesInFolder(get().selectedFolderId);
-    await useTagStore.getState().loadTags();
-    await refreshSmartCollections();
+    await refreshTagsAndSmartCollections();
   },
 
   updateFileMetadata: async (fileId, rating, description, sourceUrl) => {
@@ -545,8 +529,7 @@ export const useLibraryQueryStore = create<LibraryQueryStore>((set, get) => ({
   moveFile: async (fileId, targetFolderId) => {
     await moveFile({ fileId, targetFolderId });
     await get().loadFilesInFolder(get().selectedFolderId);
-    await refreshFolders();
-    await refreshSmartCollections();
+    await refreshLibraryTreeAndStats();
   },
 
   moveFiles: async (fileIds, targetFolderId) => {
@@ -554,15 +537,13 @@ export const useLibraryQueryStore = create<LibraryQueryStore>((set, get) => ({
     useSelectionStore.getState().clearSelection();
     useSelectionStore.getState().setSelectedFile(null);
     await get().loadFilesInFolder(get().selectedFolderId);
-    await refreshFolders();
-    await refreshSmartCollections();
+    await refreshLibraryTreeAndStats();
   },
 
   copyFiles: async (fileIds, targetFolderId) => {
     await copyFiles({ fileIds, targetFolderId });
     await get().loadFilesInFolder(get().selectedFolderId);
-    await refreshFolders();
-    await refreshSmartCollections();
+    await refreshLibraryTreeAndStats();
   },
 
   extractColor: async (fileId) => {

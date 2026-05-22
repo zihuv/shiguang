@@ -1,3 +1,12 @@
+import type {
+  BinaryImageImportItem,
+  ImportTaskItem,
+  SmartCollectionId,
+  VisualIndexTaskSnapshot,
+  VisualModelDownloadSnapshot,
+  VisualModelDownloadStatus,
+} from "../src/shared/desktop-types";
+
 export interface TagRecord {
   id: number;
   name: string;
@@ -33,13 +42,7 @@ export interface FileRecord {
   trashPreviewPath?: string | null;
 }
 
-export type SmartCollectionId =
-  | "all"
-  | "unclassified"
-  | "untagged"
-  | "recent"
-  | "random"
-  | "similar";
+export type { SmartCollectionId };
 
 export interface SmartCollectionStats {
   allCount: number;
@@ -91,48 +94,13 @@ export interface PaginatedFiles {
   debugScores?: Array<{ fileId: number; name: string; score: number }>;
 }
 
-export interface BinaryImageImportItem {
-  bytes?: Uint8Array;
-  ext: string;
-  sourcePath?: string;
-  rating?: number;
-  description?: string;
-  sourceUrl?: string;
-  tagIds?: number[];
-}
-
-interface ImportTaskItemBase {
-  folderId?: number | null;
-}
-
-export type ImportTaskItem =
-  | (ImportTaskItemBase & {
-      kind: "file_path";
-      path: string;
-    })
-  | (ImportTaskItemBase & {
-      kind: "base64_image";
-      base64Data: string;
-      ext: string;
-    })
-  | (ImportTaskItemBase & {
-      kind: "binary_image";
-      bytes: Uint8Array;
-      ext: string;
-      rating?: number;
-      description?: string;
-      sourceUrl?: string;
-      tagIds?: number[];
-    })
-  | (ImportTaskItemBase & {
-      kind: "clipboard_file";
-      sourcePath: string;
-      ext?: string;
-      rating?: number;
-      description?: string;
-      sourceUrl?: string;
-      tagIds?: number[];
-    });
+export type {
+  BinaryImageImportItem,
+  ImportTaskItem,
+  VisualIndexTaskSnapshot,
+  VisualModelDownloadSnapshot,
+  VisualModelDownloadStatus,
+};
 
 export interface ImportTaskItemResult {
   index: number;
@@ -169,42 +137,6 @@ export interface AiMetadataTaskSnapshot {
   successCount: number;
   failureCount: number;
   results: AiMetadataTaskItemResult[];
-}
-
-export interface VisualIndexTaskSnapshot {
-  id: string;
-  status: string;
-  total: number;
-  processed: number;
-  indexedCount: number;
-  failureCount: number;
-  skippedCount: number;
-  currentFileId?: number | null;
-  currentFileName?: string | null;
-  processUnindexedOnly: boolean;
-}
-
-export type VisualModelDownloadStatus =
-  | "queued"
-  | "scanning"
-  | "downloading"
-  | "completed"
-  | "failed"
-  | "cancelled";
-
-export interface VisualModelDownloadSnapshot {
-  id: string;
-  status: VisualModelDownloadStatus;
-  repoId: string;
-  modelName: string;
-  mirrorUrl: string;
-  targetDir: string;
-  totalFiles: number;
-  completedFiles: number;
-  totalBytes: number;
-  downloadedBytes: number;
-  currentFileName?: string | null;
-  error?: string | null;
 }
 
 export interface AppState {

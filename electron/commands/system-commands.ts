@@ -11,7 +11,7 @@ import {
   DRAG_ICON_MAX_EDGE,
 } from "../drag-preview-icon";
 import type { AppState, FileRecord } from "../types";
-import { type CommandHandler, numberArg, numberArrayArg } from "./common";
+import { type CommandRegistrySlice, numberArg, numberArrayArg } from "./common";
 
 const genericDragIconCache = new Map<string, Promise<Electron.NativeImage>>();
 
@@ -104,7 +104,18 @@ async function getFallbackDragIcon(filePath: string): Promise<Electron.NativeIma
   return nativeImage.createEmpty();
 }
 
-export function createSystemCommands(state: AppState): Record<string, CommandHandler> {
+type SystemCommandName =
+  | "get_app_version"
+  | "check_for_updates"
+  | "copy_files_to_clipboard"
+  | "start_drag_files"
+  | "open_file"
+  | "show_in_explorer"
+  | "show_folder_in_explorer"
+  | "show_current_library_in_explorer"
+  | "open_log_directory";
+
+export function createSystemCommands(state: AppState): CommandRegistrySlice<SystemCommandName> {
   return {
     get_app_version: () => app.getVersion(),
     check_for_updates: () => checkForUpdates({ manual: true }),

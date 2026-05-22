@@ -21,6 +21,7 @@ function ensureRuntimeSettings(db: Database.Database, indexPath: string): void {
 
 export * from "./database/shared";
 export * from "./database/settings-repository";
+export * from "./database/file-query";
 export * from "./database/file-repository";
 export * from "./database/visual-repository";
 export * from "./database/similarity-repository";

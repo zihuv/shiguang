@@ -14,9 +14,26 @@ import {
   startVisualModelDownload,
 } from "../visual-search/model-download";
 import type { AppState } from "../types";
-import { type CommandHandler, emit, numberArg, numberArrayArg, stringArg } from "./common";
+import { type CommandRegistrySlice, emit, numberArg, numberArrayArg, stringArg } from "./common";
 
-export function createVisualAiCommands(state: AppState): Record<string, CommandHandler> {
+type VisualAiCommandName =
+  | "analyze_file_metadata"
+  | "start_ai_metadata_task"
+  | "get_ai_metadata_task"
+  | "cancel_ai_metadata_task"
+  | "rebuild_visual_index"
+  | "start_visual_index_task"
+  | "get_visual_index_task"
+  | "cancel_visual_index_task"
+  | "get_visual_index_status"
+  | "complete_visual_index_browser_decode_request"
+  | "validate_visual_model_path"
+  | "get_recommended_visual_model_path"
+  | "start_visual_model_download"
+  | "cancel_visual_model_download"
+  | "test_ai_endpoint";
+
+export function createVisualAiCommands(state: AppState): CommandRegistrySlice<VisualAiCommandName> {
   return {
     analyze_file_metadata: async (args, window) => {
       const file = await analyzeFileMetadata(

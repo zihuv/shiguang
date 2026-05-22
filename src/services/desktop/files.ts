@@ -1,70 +1,25 @@
 import { invokeDesktop } from "@/services/desktop/core";
 import type {
   AiMetadataTaskSnapshot,
+  FileFilterPayload,
   FileItem,
   ImportTaskItem,
   ImportTaskSnapshot,
   PaginatedFilesResponse,
-  SmartCollectionId,
   SmartCollectionStats,
+  VisualIndexRebuildResult,
+  VisualIndexStatus,
   VisualIndexTaskSnapshot,
   VisualModelDownloadSnapshot,
+  VisualModelValidationResult,
 } from "@/shared/desktop-types";
 
-export interface FileFilterPayload {
-  query: string | null;
-  natural_language_query: string | null;
-  image_query_file_id: number | null;
-  folder_id: number | null;
-  smart_view: SmartCollectionId | null;
-  smart_seed: number | null;
-  file_types: string[] | null;
-  date_start: string | null;
-  date_end: string | null;
-  size_min: number | null;
-  size_max: number | null;
-  tag_ids: number[] | null;
-  min_rating: number | null;
-  dominant_color: string | null;
-  sort_by: string | null;
-  sort_direction: string | null;
-}
-
-export interface VisualIndexRebuildResult {
-  total: number;
-  indexed: number;
-  failed: number;
-  skipped: number;
-}
-
-export interface VisualIndexStatus {
-  modelValid: boolean;
-  message: string;
-  modelId: string | null;
-  version: string | null;
-  requestedDevice: "auto" | "cpu" | "gpu" | null;
-  providerPolicy: "auto" | "interactive" | "service" | null;
-  runtimeLoaded: boolean;
-  runtimeMode: "uninitialized" | "cpu_only" | "gpu_enabled" | "mixed" | "unknown" | null;
-  effectiveProvider: "tensorrt" | "cuda" | "direct_ml" | "core_ml" | "cpu" | null;
-  runtimeReason: string | null;
-  indexedCount: number;
-  failedCount: number;
-  pendingCount: number;
-  outdatedCount: number;
-  totalImageCount: number;
-}
-
-export interface VisualModelValidationResult {
-  valid: boolean;
-  message: string;
-  normalizedModelPath: string;
-  modelId: string | null;
-  version: string | null;
-  embeddingDim: number | null;
-  contextLength: number | null;
-  missingFiles: string[];
-}
+export type {
+  FileFilterPayload,
+  VisualIndexRebuildResult,
+  VisualIndexStatus,
+  VisualModelValidationResult,
+} from "@/shared/desktop-types";
 
 export type AiEndpointTarget = "metadata";
 

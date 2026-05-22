@@ -10,14 +10,24 @@ import {
 } from "../database";
 import type { AppState } from "../types";
 import {
-  type CommandHandler,
+  type CommandRegistrySlice,
   numberArg,
   numberArrayArg,
   optionalNumberArg,
   stringArg,
 } from "./common";
 
-export function createTagCommands(state: AppState): Record<string, CommandHandler> {
+type TagCommandName =
+  | "get_all_tags"
+  | "create_tag"
+  | "update_tag"
+  | "delete_tag"
+  | "add_tag_to_file"
+  | "remove_tag_from_file"
+  | "reorder_tags"
+  | "move_tag";
+
+export function createTagCommands(state: AppState): CommandRegistrySlice<TagCommandName> {
   return {
     get_all_tags: () => getAllTags(state.db),
     create_tag: (args) =>

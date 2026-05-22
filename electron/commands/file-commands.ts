@@ -24,7 +24,7 @@ import { buildThumbHash, extractColorDistributionFromInput } from "../media";
 import { getThumbnailCachePath } from "../storage";
 import type { AppState } from "../types";
 import {
-  type CommandHandler,
+  type CommandRegistrySlice,
   emit,
   numberArg,
   optionalNumberArg,
@@ -39,22 +39,32 @@ import {
 import { loadVisualModelValidation, loadVisualSearchConfig } from "./visual-ai-service";
 import { encodeVisualSearchTextInUtility } from "../visual-search/visual-index-utility-service.js";
 
-function searchFilesByNameFallback(state: AppState, args: Record<string, unknown>, query: string) {
-  const filter = (args.filter ?? {}) as Record<string, unknown>;
-  return filterFiles(state.db, {
-    ...args,
-    filter: {
-      ...filter,
-      query: filter.query || query,
-      natural_language_query: null,
-    },
-  });
-}
+type FileCommandName =
+  | "get_all_files"
+  | "search_files"
+  | "get_files_in_folder"
+  | "get_file"
+  | "filter_files"
+  | "update_file_metadata"
+  | "update_file_dimensions"
+  | "get_or_create_thumb_hash"
+  | "extract_color"
+  | "update_file_name"
+  | "start_import_task"
+  | "get_import_task"
+  | "cancel_import_task"
+  | "retry_import_task"
+  | "get_thumbnail_path"
+  | "get_thumbnail_data_base64"
+  | "get_thumbnail_cache_path"
+  | "get_smart_collection_stats"
+  | "touch_file_last_accessed"
+  | "save_thumbnail_cache";
 
 export function createFileCommands(
   state: AppState,
   getWindow: GetWindow,
-): Record<string, CommandHandler> {
+): CommandRegistrySlice<FileCommandName> {
   const getThumbnailPath = async (args: Record<string, unknown>) => {
     const filePath = stringArg(args, "filePath", "file_path");
     const file = getFileByPath(state.db, filePath);
@@ -105,7 +115,7 @@ export function createFileCommands(
 
       const config = loadVisualSearchConfig(state);
       if (!config.modelPath.trim()) {
-        return searchFilesByNameFallback(state, args, naturalLanguageQuery);
+        throw new Error("请先在设置中选择本地自然语言搜索模型。");
       }
 
       const validation = await loadVisualModelValidation(state, config);

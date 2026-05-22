@@ -68,7 +68,7 @@ interface FullscreenPreviewShellProps extends PreviewViewportProps {
 }
 
 interface StandardPreviewShellProps extends PreviewViewportProps {
-  currentFolderName: string;
+  currentFileName: string;
   currentNum: number;
   totalFiles: number;
   canGoPrev: boolean;
@@ -295,7 +295,7 @@ export function FullscreenPreviewShell({
 }
 
 export function StandardPreviewShell({
-  currentFolderName,
+  currentFileName,
   currentNum,
   totalFiles,
   canGoPrev,
@@ -387,7 +387,9 @@ export function StandardPreviewShell({
     <div className="flex h-full flex-col bg-[var(--app-canvas)]">
       <div className="relative flex h-12 items-center justify-between bg-[var(--app-surface)] px-4">
         <div className="relative z-10 flex min-w-0 flex-1 items-center gap-4 pr-4">
-          <span className={cn(appPanelTitleClass, "truncate")}>{currentFolderName}</span>
+          <span className={cn(appPanelTitleClass, "truncate")} title={currentFileName}>
+            {currentFileName}
+          </span>
         </div>
 
         <div className="pointer-events-none absolute left-1/2 top-1/2 min-w-[64px] -translate-x-1/2 -translate-y-1/2 text-center text-[13px] font-medium text-gray-500 dark:text-gray-400">

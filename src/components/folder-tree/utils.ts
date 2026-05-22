@@ -1,17 +1,11 @@
 import type { SmartCollectionId } from "@/stores/fileTypes";
 import type { FolderNode } from "@/stores/folderStore";
-import { shouldResetQueryStateForSmartCollectionEntry } from "@/components/folder-tree/navigationState";
 import { filterFuzzyTree } from "@/shared/fuzzySearch";
-import { useFolderStore } from "@/stores/folderStore";
-import { useFilterStore } from "@/stores/filterStore";
-import { useLibraryQueryStore } from "@/stores/libraryQueryStore";
 import {
-  useLibraryNavigationHistoryStore,
-  type LibraryHistoryEntry,
-} from "@/stores/libraryNavigationHistoryStore";
-import { useNavigationStore } from "@/stores/navigationStore";
-import { usePreviewStore } from "@/stores/previewStore";
-import { useSelectionStore } from "@/stores/selectionStore";
+  navigateToLibraryHistoryEntry,
+  openLibraryFolder,
+  openSmartCollection,
+} from "@/stores/librarySession";
 import { findFolderById } from "@/utils/folderTree";
 
 export { findFolderById } from "@/utils/folderTree";
@@ -134,102 +128,21 @@ export function buildFolderMovePlan(
   };
 }
 
-function getCurrentLibraryHistoryEntry(): LibraryHistoryEntry {
-  const folderStore = useFolderStore.getState();
-  const navigationStore = useNavigationStore.getState();
-
-  if (folderStore.selectedFolderId !== null) {
-    return { type: "folder", folderId: folderStore.selectedFolderId };
-  }
-
-  return { type: "smart", smartCollection: navigationStore.activeSmartCollection ?? "all" };
-}
-
 export async function selectFolderFromTree(
   folderId: number | null,
   options: { recordHistory?: boolean } = {},
 ) {
-  const folderStore = useFolderStore.getState();
-  const filterStore = useFilterStore.getState();
-  const libraryStore = useLibraryQueryStore.getState();
-  const navigationStore = useNavigationStore.getState();
-  const selectionStore = useSelectionStore.getState();
-  const previewStore = usePreviewStore.getState();
-  const previousEntry = getCurrentLibraryHistoryEntry();
-
-  navigationStore.openLibrary(folderId === null ? "all" : null);
-
-  if (filterStore.isFilterPanelOpen || folderId === null) {
-    filterStore.setFolderId(null);
-  }
-
-  if (folderStore.selectedFolderId === folderId) {
-    selectionStore.clearSelection();
-    previewStore.closePreview();
-    if (selectionStore.selectedFile) {
-      selectionStore.setSelectedFile(null);
-    }
-    return;
-  }
-
-  folderStore.selectFolder(folderId);
-  selectionStore.clearSelection();
-  previewStore.closePreview();
-  selectionStore.setSelectedFile(null);
-  await libraryStore.loadFilesInFolder(folderId);
-
-  if (options.recordHistory !== false) {
-    const entry: LibraryHistoryEntry =
-      folderId === null ? { type: "smart", smartCollection: "all" } : { type: "folder", folderId };
-    useLibraryNavigationHistoryStore.getState().visit(entry, previousEntry);
-  }
+  await openLibraryFolder(folderId, options);
 }
 
 export async function selectSmartCollectionFromSidebar(
   smartCollection: SmartCollectionId,
   options: { recordHistory?: boolean } = {},
 ) {
-  const folderStore = useFolderStore.getState();
-  const filterStore = useFilterStore.getState();
-  const libraryStore = useLibraryQueryStore.getState();
-  const navigationStore = useNavigationStore.getState();
-  const selectionStore = useSelectionStore.getState();
-  const previewStore = usePreviewStore.getState();
-  const previousEntry = getCurrentLibraryHistoryEntry();
-
-  if (
-    shouldResetQueryStateForSmartCollectionEntry({
-      currentView: navigationStore.currentView,
-      smartCollection,
-    })
-  ) {
-    filterStore.clearFilters();
-    libraryStore.clearTransientQuery();
-  }
-  navigationStore.openSmartCollection(smartCollection);
-  filterStore.setFolderId(null);
-  folderStore.selectFolder(null);
-  libraryStore.setSelectedFolderId(null);
-  selectionStore.clearSelection();
-  previewStore.closePreview();
-  selectionStore.setSelectedFile(null);
-  await libraryStore.runCurrentQuery(null);
-
-  if (options.recordHistory !== false) {
-    useLibraryNavigationHistoryStore
-      .getState()
-      .visit({ type: "smart", smartCollection }, previousEntry);
-  }
+  await openSmartCollection(smartCollection, options);
 }
 
-export async function navigateToLibraryHistoryEntry(entry: LibraryHistoryEntry) {
-  if (entry.type === "folder") {
-    await selectFolderFromTree(entry.folderId, { recordHistory: false });
-    return;
-  }
-
-  await selectSmartCollectionFromSidebar(entry.smartCollection, { recordHistory: false });
-}
+export { navigateToLibraryHistoryEntry };
 
 export const flattenFolders = (nodes: FolderNode[], depth = 0): FlattenedFolderNode[] => {
   let result: FlattenedFolderNode[] = [];

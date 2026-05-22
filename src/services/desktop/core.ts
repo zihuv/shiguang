@@ -1,3 +1,9 @@
+import type {
+  DesktopCommandArgs,
+  DesktopCommandName,
+  DesktopCommandResult,
+} from "@/shared/desktop-command-contracts";
+
 type DesktopEvent<T> = {
   payload: T;
 };
@@ -44,15 +50,20 @@ function normalizeDesktopError(error: unknown) {
   return new Error(getErrorMessage(error));
 }
 
-export async function invokeDesktop<T>(
+export function invokeDesktop<Name extends DesktopCommandName>(
+  command: Name,
+  args?: DesktopCommandArgs<Name>,
+): Promise<DesktopCommandResult<Name>>;
+export function invokeDesktop<T>(command: string, args?: Record<string, unknown>): Promise<T>;
+export async function invokeDesktop(
   command: string,
   args?: Record<string, unknown>,
-): Promise<T> {
+): Promise<unknown> {
   try {
     if (!window.shiguang) {
       throw new Error("Desktop bridge is not available");
     }
-    return await window.shiguang.invoke<T>(command, args);
+    return await window.shiguang.invoke(command, args);
   } catch (error) {
     throw normalizeDesktopError(error);
   }

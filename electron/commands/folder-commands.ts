@@ -1,7 +1,6 @@
 import fssync from "node:fs";
 import path from "node:path";
 import {
-  BROWSER_COLLECTION_FOLDER_NAME,
   createFolderRecord,
   createFolderTrashEntry,
   currentTimestamp,
@@ -25,7 +24,7 @@ import { removeThumbnailForFile } from "../storage";
 import type { AppState } from "../types";
 import { ensureDir, moveDirectoryWithFallback, removePathQuietly } from "../file-operations";
 import {
-  type CommandHandler,
+  type CommandRegistrySlice,
   numberArg,
   numberArrayArg,
   optionalNumberArg,
@@ -41,7 +40,19 @@ import {
 } from "./trash-file-service";
 import { normalizeFolderName } from "../path-utils";
 
-export function createFolderCommands(state: AppState): Record<string, CommandHandler> {
+type FolderCommandName =
+  | "get_folder_tree"
+  | "get_folder_size"
+  | "init_default_folder"
+  | "create_folder"
+  | "delete_folder"
+  | "rename_folder"
+  | "move_folder"
+  | "reorder_folders"
+  | "scan_folders"
+  | "init_browser_collection_folder";
+
+export function createFolderCommands(state: AppState): CommandRegistrySlice<FolderCommandName> {
   return {
     get_folder_tree: () => getFolderTree(state.db),
     get_folder_size: (args) => getFolderSize(state.db, numberArg(args, "folderId", "folder_id")),
@@ -151,13 +162,5 @@ export function createFolderCommands(state: AppState): Record<string, CommandHan
       return total;
     },
     init_browser_collection_folder: () => ensureBrowserCollectionFolder(state),
-    get_browser_collection_folder: () => {
-      const matchingFolders = getAllFolders(state.db).filter(
-        (folder) => folder.name === BROWSER_COLLECTION_FOLDER_NAME,
-      );
-      return (
-        matchingFolders.find((folder) => folder.parent_id === null) ?? matchingFolders[0] ?? null
-      );
-    },
   };
 }

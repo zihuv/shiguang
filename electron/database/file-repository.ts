@@ -4,24 +4,19 @@ import {
   countDistinct,
   desc,
   eq,
-  exists,
-  gte,
   inArray,
-  isNotNull,
   isNull,
   like,
-  lte,
   notExists,
   or,
   sql,
 } from "drizzle-orm";
-import type { SQL } from "drizzle-orm";
 import fssync from "node:fs";
 import path from "node:path";
 import { pathHasPrefix } from "../path-utils";
 import type { FileRecord, PaginatedFiles, SmartCollectionStats } from "../types";
-import { FILE_FORMAT_GROUPS } from "../../src/shared/file-formats";
 import { fuzzySearchItems } from "../../src/shared/fuzzySearch";
+import { buildFileFilterWhere, buildFilteredFileOrder } from "./file-query";
 import {
   attachTags,
   buildOrderSql,
@@ -152,96 +147,8 @@ export function getFilesInFolder(
   return paginated(db, rows, total, page, pageSize);
 }
 
-const FILE_TYPE_EXTENSIONS: Record<string, readonly string[]> = FILE_FORMAT_GROUPS;
 type FuzzyFileCandidate = Pick<FileRow, "id" | "name">;
 const FUZZY_FILE_KEYS = [(file: FuzzyFileCandidate) => path.parse(file.name).name];
-
-function buildFilterWhere(db: Database.Database, filter: Record<string, unknown>): SQL {
-  const conditions: SQL[] = [isNull(filesTable.deletedAt), isNull(filesTable.missingAt)];
-  const query = String(filter.query ?? "").trim();
-  if (query) {
-    conditions.push(like(filesTable.name, `%${query}%`));
-  }
-
-  if (typeof filter.folder_id === "number") {
-    conditions.push(eq(filesTable.folderId, filter.folder_id));
-  }
-
-  const smartView = String(filter.smart_view ?? "").trim();
-  if (smartView === "unclassified") {
-    conditions.push(isNull(filesTable.folderId));
-  } else if (smartView === "untagged") {
-    conditions.push(
-      notExists(
-        getDrizzleDb(db)
-          .select({ one: sql`1` })
-          .from(fileTags)
-          .where(eq(fileTags.fileId, filesTable.id)),
-      ),
-    );
-  } else if (smartView === "recent") {
-    conditions.push(isNotNull(filesTable.lastAccessedAt));
-  }
-
-  const fileTypes = Array.isArray(filter.file_types) ? filter.file_types.map(String) : [];
-  const extGroups = fileTypes.flatMap((type) => FILE_TYPE_EXTENSIONS[type] ?? []);
-  if (extGroups.length) {
-    conditions.push(inArray(sql`LOWER(${filesTable.ext})`, extGroups));
-  }
-
-  const dateStart = String(filter.date_start ?? "").trim();
-  if (dateStart) {
-    conditions.push(gte(filesTable.importedAt, dateStart));
-  }
-  const dateEnd = String(filter.date_end ?? "").trim();
-  if (dateEnd) {
-    conditions.push(lte(filesTable.importedAt, dateEnd));
-  }
-
-  if (typeof filter.size_min === "number") {
-    conditions.push(gte(filesTable.size, filter.size_min));
-  }
-  if (typeof filter.size_max === "number") {
-    conditions.push(lte(filesTable.size, filter.size_max));
-  }
-  if (typeof filter.min_rating === "number" && filter.min_rating > 0) {
-    conditions.push(gte(filesTable.rating, filter.min_rating));
-  }
-
-  const tagIds = Array.isArray(filter.tag_ids)
-    ? filter.tag_ids.filter((value) => typeof value === "number")
-    : [];
-  if (tagIds.length) {
-    conditions.push(
-      exists(
-        getDrizzleDb(db)
-          .select({ one: sql`1` })
-          .from(fileTags)
-          .where(and(eq(fileTags.fileId, filesTable.id), inArray(fileTags.tagId, tagIds))),
-      ),
-    );
-  }
-
-  const targetColor = String(filter.dominant_color ?? "").trim();
-  if (targetColor) {
-    const parsed = parseHexColor(targetColor);
-    if (parsed) {
-      const [r, g, b] = parsed;
-      conditions.push(
-        and(
-          isNotNull(filesTable.dominantR),
-          isNotNull(filesTable.dominantG),
-          isNotNull(filesTable.dominantB),
-          sql`(((${filesTable.dominantR} - ${r}) * (${filesTable.dominantR} - ${r})) + ((${filesTable.dominantG} - ${g}) * (${filesTable.dominantG} - ${g})) + ((${filesTable.dominantB} - ${b}) * (${filesTable.dominantB} - ${b}))) <= ${85 * 85}`,
-        )!,
-      );
-    } else {
-      conditions.push(sql`1 = 0`);
-    }
-  }
-
-  return and(...conditions)!;
-}
 
 function queryDuplicateOrSimilarRows(
   db: Database.Database,
@@ -256,7 +163,7 @@ function queryDuplicateOrSimilarRows(
   }
 
   const scopedFilter = { ...filter, smart_view: null };
-  const where = and(buildFilterWhere(db, scopedFilter), inArray(filesTable.id, orderedIds));
+  const where = and(buildFileFilterWhere(db, scopedFilter), inArray(filesTable.id, orderedIds));
   const orderSql = `CASE f.id ${orderedIds
     .map((id, index) => `WHEN ${id} THEN ${index}`)
     .join(" ")} ELSE ${orderedIds.length} END`;
@@ -290,22 +197,8 @@ export function queryFilteredRows(
   }
 
   const { page, pageSize, offset } = pageArgs(args.page, args.pageSize);
-  const where = buildFilterWhere(db, filter);
-  const smartView = String(filter.smart_view ?? "").trim();
-  let orderByExpression = sql.raw(
-    buildOrderSql(
-      filter.sort_by as string | undefined,
-      filter.sort_direction as string | undefined,
-    ),
-  );
-
-  if (smartView === "recent") {
-    orderByExpression = sql`${filesTable.lastAccessedAt} DESC, ${filesTable.importedAt} DESC, ${filesTable.id} ASC`;
-  } else if (smartView === "random") {
-    const rawSeed = Number(filter.smart_seed);
-    const seed = Number.isInteger(rawSeed) ? Math.abs(rawSeed) + 1 : 1;
-    orderByExpression = sql`ABS(((${filesTable.id} * ${seed}) + ${seed * 97 + 13}) % 2147483647) ASC, ${filesTable.id} ASC`;
-  }
+  const where = buildFileFilterWhere(db, filter);
+  const orderByExpression = buildFilteredFileOrder(filter);
 
   const rows = getDrizzleDb(db)
     .select()
@@ -381,21 +274,8 @@ function queryFuzzyFilteredRows(
     };
   }
 
-  const where = buildFilterWhere(db, scopedFilter);
-  let orderByExpression = sql.raw(
-    buildOrderSql(
-      scopedFilter.sort_by as string | undefined,
-      scopedFilter.sort_direction as string | undefined,
-    ),
-  );
-
-  if (smartView === "recent") {
-    orderByExpression = sql`${filesTable.lastAccessedAt} DESC, ${filesTable.importedAt} DESC, ${filesTable.id} ASC`;
-  } else if (smartView === "random") {
-    const rawSeed = Number(scopedFilter.smart_seed);
-    const seed = Number.isInteger(rawSeed) ? Math.abs(rawSeed) + 1 : 1;
-    orderByExpression = sql`ABS(((${filesTable.id} * ${seed}) + ${seed * 97 + 13}) % 2147483647) ASC, ${filesTable.id} ASC`;
-  }
+  const where = buildFileFilterWhere(db, scopedFilter);
+  const orderByExpression = buildFilteredFileOrder(scopedFilter);
 
   const candidates = getDrizzleDb(db)
     .select({ id: filesTable.id, name: filesTable.name })

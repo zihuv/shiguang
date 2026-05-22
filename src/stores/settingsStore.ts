@@ -1,13 +1,7 @@
 import { create } from "zustand";
-import {
-  DEFAULT_SHORTCUTS,
-  resolveShortcuts,
-  type ShortcutActionId,
-  type ShortcutConfig,
-} from "@/lib/shortcuts";
+import { DEFAULT_SHORTCUTS, type ShortcutActionId, type ShortcutConfig } from "@/lib/shortcuts";
 import {
   DEFAULT_BROWSER_COLLECTION_ICON_ID,
-  isBrowserCollectionIconId,
   type BrowserCollectionIconId,
 } from "@/lib/browserCollectionIcons";
 import { useFolderStore } from "@/stores/folderStore";
@@ -27,13 +21,7 @@ import {
   DEFAULT_PREVIEW_TRACKPAD_ZOOM_SPEED,
   DEFAULT_SIDEBAR_WIDTH,
   DEFAULT_VISUAL_SEARCH_CONFIG,
-  isLibraryViewMode,
   isSharedTileViewMode,
-  resolveAiConfig,
-  resolveLibraryViewScales,
-  resolveLibraryVisibleFields,
-  resolvePanelLayout,
-  resolveVisualSearchConfig,
   serializeLibraryViewPreferences,
   serializePanelLayout,
   type AiConfig,
@@ -45,22 +33,30 @@ import {
   type VisualSearchRuntimeConfig,
 } from "@/stores/settingsStore.helpers";
 import {
-  getIndexPaths,
-  getRecentIndexPaths,
-  getSetting,
   rebuildLibraryIndex,
   setSetting,
   switchIndexPathAndRestart,
 } from "@/services/desktop/indexing";
 import { scanFolders } from "@/services/desktop/folders";
 import {
-  getRecommendedVisualModelPath as getRecommendedVisualModelPathCommand,
   getVisualIndexStatus as getVisualIndexStatusCommand,
   validateVisualModelPath as validateVisualModelPathCommand,
   type VisualIndexStatus,
   type VisualModelValidationResult,
 } from "@/services/desktop/files";
-import { getDeleteMode, setDeleteMode as setDeleteModeCommand } from "@/services/desktop/trash";
+import { setDeleteMode as setDeleteModeCommand } from "@/services/desktop/trash";
+import {
+  AI_AUTO_ANALYZE_ON_IMPORT_SETTING_KEY,
+  AI_CONFIG_SETTING_KEY,
+  AUTO_CHECK_UPDATES_SETTING_KEY,
+  BROWSER_COLLECTION_ICON_SETTING_KEY,
+  LIBRARY_VIEW_PREFERENCES_SETTING_KEY,
+  loadSettingsSnapshot,
+  PANEL_LAYOUT_SETTING_KEY,
+  PREVIEW_TRACKPAD_ZOOM_SPEED_SETTING_KEY,
+  SHORTCUTS_SETTING_KEY,
+  VISUAL_SEARCH_SETTING_KEY,
+} from "@/stores/settingsLoader";
 
 export {
   clampDetailPanelWidth,
@@ -98,16 +94,6 @@ export type {
   AiMetadataAnalysisField,
   AiMetadataAnalysisFieldConfig,
 } from "@/stores/settingsStore.helpers";
-
-const SHORTCUTS_SETTING_KEY = "shortcuts";
-const PREVIEW_TRACKPAD_ZOOM_SPEED_SETTING_KEY = "previewTrackpadZoomSpeed";
-const LIBRARY_VIEW_PREFERENCES_SETTING_KEY = "libraryViewPreferences";
-const PANEL_LAYOUT_SETTING_KEY = "panelLayout";
-const AI_CONFIG_SETTING_KEY = "aiConfig";
-const VISUAL_SEARCH_SETTING_KEY = "visualSearch";
-const AI_AUTO_ANALYZE_ON_IMPORT_SETTING_KEY = "aiAutoAnalyzeOnImport";
-const AUTO_CHECK_UPDATES_SETTING_KEY = "autoCheckUpdates";
-const BROWSER_COLLECTION_ICON_SETTING_KEY = "browserCollectionIcon";
 
 let libraryViewPreferencesPersistTimer: ReturnType<typeof setTimeout> | null = null;
 let panelLayoutPersistTimer: ReturnType<typeof setTimeout> | null = null;
@@ -441,202 +427,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   },
 
   loadSettings: async () => {
-    let theme: "light" | "dark" = "dark";
-    let indexPaths: string[] = [];
-    let recentIndexPaths: string[] = [];
-    let useTrash: boolean = true;
-    let aiConfig = cloneAiConfig(DEFAULT_AI_CONFIG);
-    let visualSearch = cloneVisualSearchConfig(DEFAULT_VISUAL_SEARCH_CONFIG);
-    let autoAnalyzeOnImport = false;
-    let autoCheckUpdates = false;
-    let shortcuts = { ...DEFAULT_SHORTCUTS };
-    let previewTrackpadZoomSpeed = DEFAULT_PREVIEW_TRACKPAD_ZOOM_SPEED;
-    let libraryViewMode: LibraryViewMode = DEFAULT_LIBRARY_VIEW_MODE;
-    let libraryViewScales = { ...DEFAULT_LIBRARY_VIEW_SCALES };
-    let libraryVisibleFields = [...DEFAULT_LIBRARY_VISIBLE_FIELDS];
-    let sidebarWidth = DEFAULT_SIDEBAR_WIDTH;
-    let detailPanelWidth = DEFAULT_DETAIL_PANEL_WIDTH;
-    let isSidebarCollapsed = false;
-    let isDetailPanelCollapsed = false;
-    let browserCollectionIconId: BrowserCollectionIconId = DEFAULT_BROWSER_COLLECTION_ICON_ID;
-
-    // Get theme
-    try {
-      const themeValue = await getSetting("theme");
-      if (themeValue === "light" || themeValue === "dark") {
-        theme = themeValue;
-      }
-    } catch (e) {
-      console.error("Failed to load theme:", e);
-    }
-
-    // Get delete mode
-    try {
-      useTrash = await getDeleteMode();
-    } catch (e) {
-      console.error("Failed to load delete mode:", e);
-    }
-
-    // Get index paths
-    try {
-      indexPaths = await getIndexPaths();
-    } catch (e) {
-      console.error("Failed to load index paths:", e);
-    }
-
-    try {
-      recentIndexPaths = await getRecentIndexPaths();
-    } catch (e) {
-      console.error("Failed to load recent index paths:", e);
-    }
-
-    try {
-      const aiConfigValue = await getSetting(AI_CONFIG_SETTING_KEY);
-      if (aiConfigValue) {
-        aiConfig = resolveAiConfig(JSON.parse(aiConfigValue));
-      }
-    } catch (e) {
-      console.error("Failed to load AI config:", e);
-    }
-
-    try {
-      const visualSearchValue = await getSetting(VISUAL_SEARCH_SETTING_KEY);
-      if (visualSearchValue) {
-        visualSearch = resolveVisualSearchConfig(JSON.parse(visualSearchValue));
-      }
-    } catch (e) {
-      console.error("Failed to load visual search config:", e);
-    }
-
-    try {
-      const currentModelPath = visualSearch.modelPath.trim();
-      let nextModelPath = "";
-      if (currentModelPath) {
-        const validation = await validateVisualModelPathCommand(currentModelPath);
-        if (validation.valid) {
-          nextModelPath = validation.normalizedModelPath || currentModelPath;
-        }
-      } else {
-        const recommendedModelPath = await getRecommendedVisualModelPathCommand();
-        if (recommendedModelPath) {
-          nextModelPath = recommendedModelPath;
-        }
-      }
-
-      if (nextModelPath && nextModelPath !== currentModelPath) {
-        visualSearch = {
-          ...visualSearch,
-          modelPath: nextModelPath,
-        };
-        await setSetting(VISUAL_SEARCH_SETTING_KEY, JSON.stringify(visualSearch));
-      }
-    } catch (e) {
-      console.error("Failed to detect recommended visual model path:", e);
-    }
-
-    try {
-      const autoAnalyzeValue = await getSetting(AI_AUTO_ANALYZE_ON_IMPORT_SETTING_KEY);
-      if (autoAnalyzeValue !== null) {
-        autoAnalyzeOnImport = autoAnalyzeValue === "true" || autoAnalyzeValue === "1";
-      }
-    } catch (e) {
-      console.error("Failed to load auto analyze setting:", e);
-    }
-
-    try {
-      const autoCheckUpdatesValue = await getSetting(AUTO_CHECK_UPDATES_SETTING_KEY);
-      if (autoCheckUpdatesValue !== null) {
-        autoCheckUpdates = autoCheckUpdatesValue === "true" || autoCheckUpdatesValue === "1";
-      }
-    } catch (e) {
-      console.error("Failed to load update check setting:", e);
-    }
-
-    try {
-      const shortcutsValue = await getSetting(SHORTCUTS_SETTING_KEY);
-      if (shortcutsValue) {
-        shortcuts = resolveShortcuts(
-          JSON.parse(shortcutsValue) as Partial<Record<ShortcutActionId, string | null>>,
-        );
-      }
-    } catch (e) {
-      console.error("Failed to load shortcuts:", e);
-    }
-
-    try {
-      const speedValue = await getSetting(PREVIEW_TRACKPAD_ZOOM_SPEED_SETTING_KEY);
-      if (speedValue !== null) {
-        previewTrackpadZoomSpeed = clampPreviewTrackpadZoomSpeed(Number.parseFloat(speedValue));
-      }
-    } catch (e) {
-      console.error("Failed to load preview trackpad zoom speed:", e);
-    }
-
-    try {
-      const libraryViewPreferencesValue = await getSetting(LIBRARY_VIEW_PREFERENCES_SETTING_KEY);
-      if (libraryViewPreferencesValue) {
-        const parsedPreferences = JSON.parse(libraryViewPreferencesValue) as {
-          mode?: unknown;
-          scales?: Partial<Record<LibraryViewMode, unknown>>;
-          visibleFields?: unknown;
-          visibleFieldsVersion?: unknown;
-        };
-
-        if (isLibraryViewMode(parsedPreferences.mode)) {
-          libraryViewMode = parsedPreferences.mode;
-        }
-        libraryViewScales = resolveLibraryViewScales(parsedPreferences.scales);
-        libraryVisibleFields = resolveLibraryVisibleFields(
-          parsedPreferences.visibleFields,
-          parsedPreferences.visibleFieldsVersion,
-        );
-      }
-    } catch (e) {
-      console.error("Failed to load library view preferences:", e);
-    }
-
-    try {
-      const panelLayoutValue = await getSetting(PANEL_LAYOUT_SETTING_KEY);
-      if (panelLayoutValue) {
-        const parsedLayout = resolvePanelLayout(JSON.parse(panelLayoutValue));
-        sidebarWidth = parsedLayout.sidebarWidth;
-        detailPanelWidth = parsedLayout.detailPanelWidth;
-        isSidebarCollapsed = parsedLayout.isSidebarCollapsed;
-        isDetailPanelCollapsed = parsedLayout.isDetailPanelCollapsed;
-      }
-    } catch (e) {
-      console.error("Failed to load panel layout:", e);
-    }
-
-    try {
-      const browserCollectionIconValue = await getSetting(BROWSER_COLLECTION_ICON_SETTING_KEY);
-      if (isBrowserCollectionIconId(browserCollectionIconValue)) {
-        browserCollectionIconId = browserCollectionIconValue;
-      }
-    } catch (e) {
-      console.error("Failed to load browser collection icon:", e);
-    }
-
-    set({
-      theme,
-      indexPaths: indexPaths || [],
-      recentIndexPaths: recentIndexPaths.filter((item) => item !== (indexPaths[0] ?? null)) || [],
-      useTrash,
-      aiConfig,
-      visualSearch,
-      autoAnalyzeOnImport,
-      autoCheckUpdates,
-      shortcuts,
-      previewTrackpadZoomSpeed,
-      libraryViewMode,
-      libraryViewScales,
-      libraryVisibleFields,
-      sidebarWidth,
-      detailPanelWidth,
-      isSidebarCollapsed,
-      isDetailPanelCollapsed,
-      browserCollectionIconId,
-    });
+    set(await loadSettingsSnapshot());
 
     void get().refreshVisualSearchStatus();
   },

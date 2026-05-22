@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type SyntheticEvent } from "react";
-import { createPortal, flushSync } from "react-dom";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { copyFilesToClipboard } from "@/lib/clipboard";
 import { flattenFolders } from "@/components/image-preview/constants";
@@ -19,23 +19,16 @@ import {
   FullscreenPreviewShell,
   StandardPreviewShell,
 } from "@/components/image-preview/PreviewShells";
-import {
-  VideoPlayer,
-  type VideoPlaybackSnapshot,
-  type VideoSeekRequest,
-} from "@/components/video/VideoPlayer";
+import { VideoPlayer } from "@/components/video/VideoPlayer";
 import { SKIP_SECONDS } from "@/components/video/videoPlayerModel";
 import { usePreviewSource } from "@/components/image-preview/usePreviewSource";
+import { usePreviewFullscreen } from "@/components/image-preview/usePreviewFullscreen";
+import { usePreviewVideoSession } from "@/components/image-preview/usePreviewVideoSession";
 import { usePreviewZoomPan } from "@/components/image-preview/usePreviewZoomPan";
 import { getErrorMessage } from "@/services/desktop/core";
 import { updateFileDimensions } from "@/services/desktop/files";
 import { openFile, showInExplorer } from "@/services/desktop/system";
 import { canAnalyzeImageMetadata } from "@/shared/file-formats";
-import {
-  isWindowFullscreen,
-  listenWindowFullscreenChanged,
-  setWindowFullscreen,
-} from "@/services/desktop/window";
 import { useFolderStore } from "@/stores/folderStore";
 import type { FileItem } from "@/stores/fileTypes";
 import { useLibraryQueryStore } from "@/stores/libraryQueryStore";
@@ -45,12 +38,6 @@ import { useSettingsStore } from "@/stores/settingsStore";
 import { useTrashStore } from "@/stores/trashStore";
 import { getFilePreviewMode, isVideoFile } from "@/utils";
 
-const FULLSCREEN_EVENT_FALLBACK_TIMEOUT_MS = 2200;
-
-function getVideoPlaybackSnapshotKey(file: FileItem) {
-  return `${file.id}:${file.modifiedAt}:${file.size}`;
-}
-
 function formatUnsupportedAiFormat(file: FileItem) {
   return `不支持格式：${(file.ext || "未知").toUpperCase()}`;
 }
@@ -58,44 +45,6 @@ function formatUnsupportedAiFormat(file: FileItem) {
 function formatAiAnalyzeError(error: unknown) {
   const message = getErrorMessage(error);
   return message.startsWith("不支持格式") ? message : `AI 分析失败: ${message}`;
-}
-
-function waitForWindowFullscreenEvent(expectedFullscreen: boolean) {
-  return new Promise<void>((resolve) => {
-    let settled = false;
-    let unsubscribe: (() => void) | null = null;
-
-    const finish = () => {
-      if (settled) {
-        return;
-      }
-
-      settled = true;
-      window.clearTimeout(timeoutId);
-      unsubscribe?.();
-      resolve();
-    };
-
-    const timeoutId = window.setTimeout(finish, FULLSCREEN_EVENT_FALLBACK_TIMEOUT_MS);
-
-    void listenWindowFullscreenChanged((payload) => {
-      if (payload.isFullscreen === expectedFullscreen) {
-        finish();
-      }
-    })
-      .then((nextUnsubscribe) => {
-        if (settled) {
-          nextUnsubscribe();
-          return;
-        }
-
-        unsubscribe = nextUnsubscribe;
-      })
-      .catch((error) => {
-        console.error("Failed to wait for native fullscreen event:", error);
-        finish();
-      });
-  });
 }
 
 export default function ImagePreview() {
@@ -111,35 +60,22 @@ export default function ImagePreview() {
   const touchFileLastAccessed = useLibraryQueryStore((state) => state.touchFileLastAccessed);
   const deleteFile = useTrashStore((state) => state.deleteFile);
 
-  const { folders, selectedFolderId } = useFolderStore();
+  const { folders } = useFolderStore();
   const previewTrackpadZoomSpeed = useSettingsStore((state) => state.previewTrackpadZoomSpeed);
 
-  const [isFullscreen, setIsFullscreen] = useState(false);
   const [imageTransform, setImageTransform] =
     useState<ImageTransformState>(DEFAULT_IMAGE_TRANSFORM);
-  const [videoSeekRequest, setVideoSeekRequest] = useState<VideoSeekRequest | null>(null);
-  const [videoPlaybackActivatedKeys, setVideoPlaybackActivatedKeys] = useState<
-    Record<string, boolean>
-  >({});
-
   const lastMenuActionRef = useRef<{ key: string; timestamp: number } | null>(null);
   const persistedDimensionsRef = useRef<Record<number, string>>({});
-  const nativeFullscreenRestoreRef = useRef<boolean | null>(null);
-  const videoPlaybackSnapshotsRef = useRef<Record<string, VideoPlaybackSnapshot>>({});
-
-  const currentFolderName = selectedFolderId
-    ? folders.find((folder) => folder.id === selectedFolderId)?.name || "未知文件夹"
-    : "全部文件";
+  const { closePreviewWithFullscreenExit, isFullscreen, setPreviewFullscreen } =
+    usePreviewFullscreen({
+      closePreview,
+      previewMode,
+    });
 
   const currentFile = previewFiles[previewIndex];
   const previewType = currentFile ? getFilePreviewMode(currentFile.ext) : "none";
   const isVideo = currentFile ? isVideoFile(currentFile.ext) : false;
-  const currentVideoKey = currentFile && isVideo ? getVideoPlaybackSnapshotKey(currentFile) : null;
-  const currentVideoSnapshot = currentVideoKey
-    ? videoPlaybackSnapshotsRef.current[currentVideoKey]
-    : undefined;
-  const isVideoSeekNavigationActive =
-    isFullscreen && Boolean(currentVideoKey && videoPlaybackActivatedKeys[currentVideoKey]);
   const isImageLike = previewType === "image" || previewType === "thumbnail";
   const canAnalyzeWithAi = currentFile ? canAnalyzeImageMetadata(currentFile.ext) : false;
   const {
@@ -215,28 +151,6 @@ export default function ImagePreview() {
   }, [currentFile, previewIndex, setSelectedFile]);
 
   useEffect(() => {
-    const activeSnapshotKeys = new Set(previewFiles.map(getVideoPlaybackSnapshotKey));
-    for (const snapshotKey of Object.keys(videoPlaybackSnapshotsRef.current)) {
-      if (!activeSnapshotKeys.has(snapshotKey)) {
-        delete videoPlaybackSnapshotsRef.current[snapshotKey];
-      }
-    }
-    setVideoPlaybackActivatedKeys((current) => {
-      let changed = false;
-      const next = { ...current };
-
-      for (const snapshotKey of Object.keys(next)) {
-        if (!activeSnapshotKeys.has(snapshotKey)) {
-          delete next[snapshotKey];
-          changed = true;
-        }
-      }
-
-      return changed ? next : current;
-    });
-  }, [previewFiles]);
-
-  useEffect(() => {
     setImageTransform(DEFAULT_IMAGE_TRANSFORM);
   }, [currentFile?.id]);
 
@@ -260,150 +174,23 @@ export default function ImagePreview() {
     }
   }, [previewFiles.length, previewIndex, setPreviewIndex]);
 
-  const handleVideoPlaybackSnapshotChange = useCallback(
-    (snapshot: VideoPlaybackSnapshot) => {
-      if (!currentFile) {
-        return;
-      }
-
-      videoPlaybackSnapshotsRef.current[getVideoPlaybackSnapshotKey(currentFile)] = snapshot;
-    },
-    [currentFile],
-  );
-
-  const handleVideoUserPlaybackStart = useCallback(() => {
-    if (!currentVideoKey) {
-      return;
-    }
-
-    setVideoPlaybackActivatedKeys((current) =>
-      current[currentVideoKey] ? current : { ...current, [currentVideoKey]: true },
-    );
-  }, [currentVideoKey]);
-
-  const skipCurrentVideoBy = useCallback((offset: number) => {
-    setVideoSeekRequest((current) => ({
-      id: (current?.id ?? 0) + 1,
-      offset,
-    }));
-  }, []);
-
-  const handleFullscreenPrev = useCallback(() => {
-    if (isVideoSeekNavigationActive) {
-      skipCurrentVideoBy(-SKIP_SECONDS);
-      return;
-    }
-
-    goToPrev();
-  }, [goToPrev, isVideoSeekNavigationActive, skipCurrentVideoBy]);
-
-  const handleFullscreenNext = useCallback(() => {
-    if (isVideoSeekNavigationActive) {
-      skipCurrentVideoBy(SKIP_SECONDS);
-      return;
-    }
-
-    goToNext();
-  }, [goToNext, isVideoSeekNavigationActive, skipCurrentVideoBy]);
-
-  const setPreviewFullscreen = useCallback(async (enabled: boolean) => {
-    if (enabled) {
-      setIsFullscreen(true);
-
-      try {
-        if (nativeFullscreenRestoreRef.current === null) {
-          nativeFullscreenRestoreRef.current = await isWindowFullscreen();
-        }
-        await setWindowFullscreen(true);
-      } catch (error) {
-        console.error("Failed to enter native fullscreen:", error);
-        nativeFullscreenRestoreRef.current = null;
-        setIsFullscreen(false);
-      }
-      return;
-    }
-
-    const restoreFullscreen = nativeFullscreenRestoreRef.current ?? false;
-
-    try {
-      const shouldWaitForNativeExit = !restoreFullscreen && (await isWindowFullscreen());
-      const waitForNativeExit = shouldWaitForNativeExit
-        ? waitForWindowFullscreenEvent(false)
-        : null;
-
-      await setWindowFullscreen(restoreFullscreen);
-      await waitForNativeExit;
-    } catch (error) {
-      console.error("Failed to leave native fullscreen:", error);
-    } finally {
-      nativeFullscreenRestoreRef.current = null;
-      setIsFullscreen(false);
-    }
-  }, []);
-
-  const closePreviewWithFullscreenExit = useCallback(() => {
-    if (isFullscreen) {
-      void setPreviewFullscreen(false).finally(closePreview);
-      return;
-    }
-    closePreview();
-  }, [closePreview, isFullscreen, setPreviewFullscreen]);
-
-  useEffect(() => {
-    if (!previewMode || !isFullscreen) {
-      return;
-    }
-
-    let cleanup: (() => void) | null = null;
-    let disposed = false;
-
-    void listenWindowFullscreenChanged((payload) => {
-      if (!payload.isFullscreen && nativeFullscreenRestoreRef.current !== null) {
-        flushSync(() => {
-          nativeFullscreenRestoreRef.current = null;
-          setIsFullscreen(false);
-        });
-      }
-    })
-      .then((unsubscribe) => {
-        if (disposed) {
-          unsubscribe();
-          return;
-        }
-        cleanup = unsubscribe;
-      })
-      .catch((error) => {
-        console.error("Failed to listen for native fullscreen changes:", error);
-      });
-
-    return () => {
-      disposed = true;
-      cleanup?.();
-    };
-  }, [isFullscreen, previewMode]);
-
-  useEffect(() => {
-    if (previewMode || !isFullscreen) {
-      return;
-    }
-
-    void setPreviewFullscreen(false);
-  }, [isFullscreen, previewMode, setPreviewFullscreen]);
-
-  useEffect(
-    () => () => {
-      const restoreFullscreen = nativeFullscreenRestoreRef.current;
-      if (restoreFullscreen === null) {
-        return;
-      }
-
-      nativeFullscreenRestoreRef.current = null;
-      void setWindowFullscreen(restoreFullscreen).catch((error) => {
-        console.error("Failed to restore native fullscreen:", error);
-      });
-    },
-    [],
-  );
+  const {
+    currentVideoSnapshot,
+    handleFullscreenNext,
+    handleFullscreenPrev,
+    handleVideoPlaybackSnapshotChange,
+    handleVideoUserPlaybackStart,
+    isVideoSeekNavigationActive,
+    skipCurrentVideoBy,
+    videoSeekRequest,
+  } = usePreviewVideoSession({
+    currentFile,
+    goToNext,
+    goToPrev,
+    isFullscreen,
+    isVideo,
+    previewFiles,
+  });
 
   useEffect(() => {
     if (!previewMode) return;
@@ -826,7 +613,7 @@ export default function ImagePreview() {
 
   return (
     <StandardPreviewShell
-      currentFolderName={currentFolderName}
+      currentFileName={currentFile.name}
       currentNum={currentNum}
       totalFiles={totalFiles}
       canGoPrev={canGoPrev}

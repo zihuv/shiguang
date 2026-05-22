@@ -18,8 +18,7 @@ import {
   type RestoreFilesResult,
 } from "@/services/desktop/trash";
 import { parseTrashItemList, type TrashItem } from "@/stores/fileTypes";
-import { type FolderNode, useFolderStore } from "@/stores/folderStore";
-import { useLibraryQueryStore } from "@/stores/libraryQueryStore";
+import { refreshAfterFolderRestore, refreshCurrentLibraryState } from "@/stores/librarySession";
 import { useSelectionStore } from "@/stores/selectionStore";
 import { useSmartCollectionStore } from "@/stores/smartCollectionStore";
 
@@ -68,45 +67,6 @@ interface TrashStore {
   permanentDeleteFolders: (folderIds: number[]) => Promise<void>;
   emptyTrash: () => Promise<void>;
   loadTrashCount: () => Promise<void>;
-}
-
-async function refreshCurrentLibraryState() {
-  await useFolderStore.getState().loadFolders();
-  const libraryStore = useLibraryQueryStore.getState();
-  await libraryStore.runCurrentQuery(libraryStore.selectedFolderId);
-  await useSmartCollectionStore.getState().loadStats();
-}
-
-function findFolderByPath(folders: FolderNode[], folderPath: string): FolderNode | null {
-  for (const folder of folders) {
-    if (folder.path === folderPath) {
-      return folder;
-    }
-    const nested = findFolderByPath(folder.children, folderPath);
-    if (nested) {
-      return nested;
-    }
-  }
-  return null;
-}
-
-async function refreshAfterRestoreFolder(restoredPath: string, shouldSelectOnUndo: boolean) {
-  await useFolderStore.getState().loadFolders();
-  await useSmartCollectionStore.getState().loadStats();
-  const libraryStore = useLibraryQueryStore.getState();
-  const folderStore = useFolderStore.getState();
-
-  if (shouldSelectOnUndo) {
-    const restoredFolder = findFolderByPath(folderStore.folders, restoredPath);
-    if (restoredFolder) {
-      folderStore.selectFolder(restoredFolder.id);
-      libraryStore.setSelectedFolderId(restoredFolder.id);
-      await libraryStore.loadFilesInFolder(restoredFolder.id);
-      return;
-    }
-  }
-
-  await libraryStore.runCurrentQuery(libraryStore.selectedFolderId);
 }
 
 function notifyRestoreResult(result: RestoreFilesResult, restoredCount: number) {
@@ -168,7 +128,7 @@ export const useTrashStore = create<TrashStore>((set, get) => ({
       await refreshTrashState(get());
     } else {
       const result = await restoreFolder(lastAction.folderId);
-      await refreshAfterRestoreFolder(result.restoredPath, lastAction.shouldSelectOnUndo);
+      await refreshAfterFolderRestore(result.restoredPath, lastAction.shouldSelectOnUndo);
       await refreshTrashState(get());
       toast.success(
         result.restoredPath === result.originalPath
@@ -242,7 +202,7 @@ export const useTrashStore = create<TrashStore>((set, get) => ({
 
   restoreFolder: async (folderId) => {
     const result = await restoreFolder(folderId);
-    await refreshAfterRestoreFolder(result.restoredPath, false);
+    await refreshAfterFolderRestore(result.restoredPath, false);
     await refreshTrashState(get());
   },
 
@@ -250,7 +210,7 @@ export const useTrashStore = create<TrashStore>((set, get) => ({
     const results = await restoreFolders(folderIds);
     const lastResult = results.length > 0 ? results[results.length - 1] : null;
     if (lastResult) {
-      await refreshAfterRestoreFolder(lastResult.restoredPath, false);
+      await refreshAfterFolderRestore(lastResult.restoredPath, false);
     } else {
       await refreshCurrentLibraryState();
     }

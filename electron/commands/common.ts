@@ -1,11 +1,16 @@
 import { BrowserWindow } from "electron";
 import crypto from "node:crypto";
+import type { DesktopCommandName } from "../../src/shared/desktop-command-contracts";
 
 export type GetWindow = () => BrowserWindow | null;
 export type CommandHandler = (
   args: Record<string, unknown>,
   eventWindow: BrowserWindow | null,
 ) => unknown | Promise<unknown>;
+export type CommandRegistry = {
+  [Name in DesktopCommandName]: CommandHandler;
+};
+export type CommandRegistrySlice<Name extends DesktopCommandName> = Pick<CommandRegistry, Name>;
 
 export function emit(window: BrowserWindow | null, channel: string, payload: unknown): void {
   if (!window || window.isDestroyed()) {

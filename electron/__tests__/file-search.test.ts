@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
+import type { AppState } from "../types";
 
 type DatabaseConstructor = typeof Database;
 
@@ -18,6 +19,19 @@ async function loadDatabaseConstructor(): Promise<DatabaseConstructor | null> {
 }
 
 describe("file fuzzy search", () => {
+  function createTestState(db: Database.Database): AppState {
+    return {
+      db,
+      dbPath: ":memory:",
+      appDataDir: "",
+      indexPath: "/library",
+      importTasks: new Map(),
+      aiMetadataTasks: new Map(),
+      visualIndexTasks: new Map(),
+      visualModelDownloadTasks: new Map(),
+    };
+  }
+
   it("matches filenames by acronym and ordered characters after filters", async () => {
     const Database = await loadDatabaseConstructor();
     if (!Database) {
@@ -78,6 +92,32 @@ describe("file fuzzy search", () => {
         pageSize: 20,
       }).files.map((file) => file.name),
     ).toEqual(["Design Pattern.jpg"]);
+
+    db.close();
+  });
+
+  it("requires an explicit local model for natural language search", async () => {
+    const Database = await loadDatabaseConstructor();
+    if (!Database) {
+      return;
+    }
+
+    const { migrateDatabase } = await import("../database/migrations");
+    const { createFileCommands } = await import("../commands/file-commands");
+    const db = new Database(":memory:");
+    migrateDatabase(db, ":memory:");
+
+    const commands = createFileCommands(createTestState(db), () => null);
+    await expect(
+      commands.filter_files(
+        {
+          filter: { natural_language_query: "red poster" },
+          page: 1,
+          pageSize: 20,
+        },
+        null,
+      ),
+    ).rejects.toThrow("请先在设置中选择本地自然语言搜索模型。");
 
     db.close();
   });

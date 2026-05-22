@@ -1,14 +1,12 @@
 import { invokeDesktop } from "@/services/desktop/core";
-import type { FileItem, TrashItem } from "@/shared/desktop-types";
+import type {
+  FileItem,
+  RestoreFilesResult,
+  RestoreFolderResult,
+  TrashItem,
+} from "@/shared/desktop-types";
 
-export interface RestoreFilesResult {
-  movedToUnclassifiedCount: number;
-}
-
-export interface RestoreFolderResult {
-  restoredPath: string;
-  originalPath: string;
-}
+export type { RestoreFilesResult, RestoreFolderResult } from "@/shared/desktop-types";
 
 export function deleteFile(fileId: number) {
   return invokeDesktop<void>("delete_file", { fileId });

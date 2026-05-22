@@ -1,11 +1,5 @@
 import { invokeDesktop } from "@/services/desktop/core";
-
-export interface UpdateCheckResult {
-  status: "disabled" | "checking" | "available" | "not-available" | "downloaded" | "error";
-  message: string;
-  version?: string;
-  downloadUrl?: string;
-}
+import type { UpdateCheckResult } from "@/shared/desktop-types";
 
 export function getAppVersion() {
   return invokeDesktop<string>("get_app_version");

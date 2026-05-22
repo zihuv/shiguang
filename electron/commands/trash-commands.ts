@@ -8,7 +8,7 @@ import {
   setDeleteMode,
 } from "../database";
 import type { AppState } from "../types";
-import { type CommandHandler, numberArg, numberArrayArg } from "./common";
+import { type CommandRegistrySlice, numberArg, numberArrayArg } from "./common";
 import {
   copyOneFile,
   deleteFileCommand,
@@ -20,7 +20,30 @@ import {
 } from "./trash-file-service";
 import { optionalNumberArg } from "./common";
 
-export function createTrashCommands(state: AppState): Record<string, CommandHandler> {
+type TrashCommandName =
+  | "delete_file"
+  | "delete_files"
+  | "get_trash_files"
+  | "get_trash_items"
+  | "restore_file"
+  | "restore_files"
+  | "restore_folder"
+  | "restore_folders"
+  | "permanent_delete_file"
+  | "permanent_delete_files"
+  | "permanent_delete_folder"
+  | "permanent_delete_folders"
+  | "empty_trash"
+  | "get_delete_mode"
+  | "set_delete_mode"
+  | "get_trash_count"
+  | "get_trash_size"
+  | "copy_file"
+  | "copy_files"
+  | "move_file"
+  | "move_files";
+
+export function createTrashCommands(state: AppState): CommandRegistrySlice<TrashCommandName> {
   return {
     delete_file: async (args) => deleteFileCommand(state, numberArg(args, "fileId", "file_id")),
     delete_files: async (args) => {

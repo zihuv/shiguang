@@ -1,4 +1,4 @@
-import type { FileFilterPayload } from "@/services/desktop/files";
+import type { FileFilterPayload } from "@/shared/desktop-types";
 import type { FilterCriteria } from "@/features/filters/types";
 
 export type FilterFieldId =

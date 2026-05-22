@@ -17,7 +17,12 @@ import {
 } from "../storage";
 import type { AppState } from "../types";
 import { isVisualSearchEmbeddingConfigChanged } from "../visual-search";
-import { type CommandHandler, stringArg, type GetWindow } from "./common";
+import {
+  type CommandRegistrySlice,
+  type CommandHandler,
+  stringArg,
+  type GetWindow,
+} from "./common";
 import { scanIndexPath } from "./library-sync-service";
 
 const VISUAL_SEARCH_SETTING_KEY = "visualSearch";
@@ -33,7 +38,18 @@ async function scanAllIndexPaths(state: AppState, window: Parameters<CommandHand
 export function createIndexingCommands(
   state: AppState,
   _getWindow: GetWindow,
-): Record<string, CommandHandler> {
+): CommandRegistrySlice<
+  | "get_setting"
+  | "set_setting"
+  | "get_index_paths"
+  | "get_recent_index_paths"
+  | "get_default_index_path"
+  | "add_index_path"
+  | "switch_index_path_and_restart"
+  | "sync_index_path"
+  | "rebuild_library_index"
+  | "remove_index_path"
+> {
   return {
     get_setting: (args) => getSetting(state.db, stringArg(args, "key")),
     set_setting: (args) => {

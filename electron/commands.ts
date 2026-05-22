@@ -9,65 +9,12 @@ import { getDeletedFolderHoldingDir } from "./trash-paths";
 import type { AppState } from "./types";
 import { type GetWindow } from "./commands/common";
 import { createCommandRegistry } from "./commands/registry";
+import {
+  WRITE_DESKTOP_COMMANDS,
+  type DesktopCommandName,
+} from "../src/shared/desktop-command-contracts";
 
-const WRITE_COMMANDS = new Set([
-  "create_folder",
-  "delete_folder",
-  "rename_folder",
-  "move_folder",
-  "reorder_folders",
-  "scan_folders",
-  "init_browser_collection_folder",
-  "update_file_metadata",
-  "update_file_dimensions",
-  "update_file_name",
-  "get_or_create_thumb_hash",
-  "extract_color",
-  "start_import_task",
-  "cancel_import_task",
-  "retry_import_task",
-  "touch_file_last_accessed",
-  "save_thumbnail_cache",
-  "create_tag",
-  "update_tag",
-  "delete_tag",
-  "add_tag_to_file",
-  "remove_tag_from_file",
-  "reorder_tags",
-  "move_tag",
-  "delete_file",
-  "delete_files",
-  "restore_file",
-  "restore_files",
-  "restore_folder",
-  "restore_folders",
-  "permanent_delete_file",
-  "permanent_delete_files",
-  "permanent_delete_folder",
-  "permanent_delete_folders",
-  "empty_trash",
-  "set_delete_mode",
-  "copy_file",
-  "copy_files",
-  "move_file",
-  "move_files",
-  "set_setting",
-  "add_index_path",
-  "remove_index_path",
-  "switch_index_path_and_restart",
-  "sync_index_path",
-  "rebuild_library_index",
-  "copy_files_to_clipboard",
-  "analyze_file_metadata",
-  "start_ai_metadata_task",
-  "cancel_ai_metadata_task",
-  "rebuild_visual_index",
-  "start_visual_index_task",
-  "cancel_visual_index_task",
-  "complete_visual_index_browser_decode_request",
-  "start_visual_model_download",
-  "cancel_visual_model_download",
-]);
+const WRITE_COMMANDS = new Set<DesktopCommandName>(WRITE_DESKTOP_COMMANDS);
 
 function summarizeArgs(args: Record<string, unknown>): string {
   const keys = Object.keys(args);
@@ -106,11 +53,12 @@ export function registerIpcHandlers(
   ipcMain.handle(
     "shiguang:invoke",
     async (event, command: string, args: Record<string, unknown> = {}) => {
-      const handler = commands[command];
+      const commandName = command as DesktopCommandName;
+      const handler = commands[commandName];
       if (!handler) {
         throw new Error(`Unknown desktop command: ${command}`);
       }
-      if (WRITE_COMMANDS.has(command)) {
+      if (WRITE_COMMANDS.has(commandName)) {
         log.info(`[cmd] ${command}`, summarizeArgs(args));
       }
       return handler(args, BrowserWindow.fromWebContents(event.sender));
@@ -118,7 +66,8 @@ export function registerIpcHandlers(
   );
 
   ipcMain.on("shiguang:send", (event, command: string, args: Record<string, unknown> = {}) => {
-    const handler = commands[command];
+    const commandName = command as DesktopCommandName;
+    const handler = commands[commandName];
     if (!handler) {
       log.warn(`Unknown send command: ${command}`);
       return;
