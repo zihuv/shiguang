@@ -38,7 +38,11 @@ const checks = {
     label: "macOS CoreML",
     required: [
       "node_modules/onnxruntime-node/bin/napi-v6/darwin/arm64/onnxruntime_binding.node",
-      "node_modules/onnxruntime-node/bin/napi-v6/darwin/arm64/libonnxruntime.1.24.3.dylib",
+      {
+        dir: "node_modules/onnxruntime-node/bin/napi-v6/darwin/arm64",
+        pattern: /^libonnxruntime\..+\.dylib$/,
+        label: "node_modules/onnxruntime-node/bin/napi-v6/darwin/arm64/libonnxruntime.*.dylib",
+      },
     ],
     binaryTokens: [
       {
@@ -92,6 +96,36 @@ function resolvePackagedFile(unpackedDirs, relativePath) {
   return null;
 }
 
+function resolvePackagedPattern(unpackedDirs, requirement) {
+  const normalizedDir = requirement.dir.split("/").join(path.sep);
+  for (const unpackedDir of unpackedDirs) {
+    const candidateDir = path.join(unpackedDir, normalizedDir);
+    if (!fs.existsSync(candidateDir)) {
+      continue;
+    }
+
+    const matchingFile = fs
+      .readdirSync(candidateDir)
+      .find((fileName) => requirement.pattern.test(fileName));
+    if (matchingFile) {
+      return path.join(candidateDir, matchingFile);
+    }
+  }
+  return null;
+}
+
+function resolveRequirement(unpackedDirs, requirement) {
+  if (typeof requirement === "string") {
+    return resolvePackagedFile(unpackedDirs, requirement);
+  }
+
+  return resolvePackagedPattern(unpackedDirs, requirement);
+}
+
+function requirementLabel(requirement) {
+  return typeof requirement === "string" ? requirement : requirement.label;
+}
+
 function assertBinaryToken(filePath, token) {
   const needle = Buffer.from(token);
   const haystack = fs.readFileSync(filePath);
@@ -107,9 +141,9 @@ if (unpackedDirs.length === 0) {
 
 const check = checks[platform];
 const missing = [];
-for (const requiredFile of check.required) {
-  if (!resolvePackagedFile(unpackedDirs, requiredFile)) {
-    missing.push(requiredFile);
+for (const requirement of check.required) {
+  if (!resolveRequirement(unpackedDirs, requirement)) {
+    missing.push(requirementLabel(requirement));
   }
 }
 
