@@ -8,6 +8,7 @@ import { useTagStore } from "@/stores/tagStore";
 import { useTrashStore } from "@/stores/trashStore";
 import { useFilterStore } from "@/stores/filterStore";
 import { useAiBatchAnalyzeStore } from "@/stores/aiBatchAnalyzeStore";
+import { useVisualIndexTaskStore } from "@/stores/visualIndexTaskStore";
 import { getLastSelectedFolderId } from "@/services/desktop/indexing";
 import type { FolderNode } from "@/stores/folderStore";
 
@@ -46,6 +47,7 @@ export const useBootstrapStore = create<BootstrapStore>((set, get) => ({
 
     try {
       useAiBatchAnalyzeStore.getState().watchAiMetadataTasks();
+      useVisualIndexTaskStore.getState().watchVisualIndexTasks();
       await useSettingsStore.getState().loadSettings();
       await useFilterStore.getState().loadPreferences();
       await useTagStore.getState().loadTags();

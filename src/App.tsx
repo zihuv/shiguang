@@ -15,6 +15,7 @@ import DragPreview from "@/components/DragPreview";
 import AppStartupScreen from "@/components/AppStartupScreen";
 import TagPanel from "@/components/TagPanel";
 import TrashPanel from "@/components/TrashPanel";
+import TaskProgressTray from "@/components/TaskProgressTray";
 import { PanelResizeHandle, PanelRestoreToggle } from "@/components/app-shell/PanelControls";
 import { WindowControls } from "@/components/app-shell/WindowControls";
 import { useAppPanelLayout } from "@/hooks/useAppPanelLayout";
@@ -206,6 +207,7 @@ function App() {
               </div>
             ) : null}
           </Suspense>
+          <TaskProgressTray />
         </main>
 
         {showsDetailPanel ? (

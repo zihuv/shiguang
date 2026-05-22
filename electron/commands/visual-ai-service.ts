@@ -180,7 +180,9 @@ async function runAutoVisualIndexing(state: AppState): Promise<void> {
     }
 
     try {
-      await runVisualIndexJob(state, window, null, true, true);
+      const snapshot = createVisualIndexTaskEntry(state, true);
+      emit(window, "visual-index-task-updated", snapshot.id);
+      await runVisualIndexTaskEntry(state, window, snapshot.id, true, true);
     } catch (error) {
       if (isVisualIndexUtilitySuspended()) {
         return;
@@ -263,6 +265,54 @@ export async function runVisualIndexJob(
   return enqueueVisualIndexJob(() =>
     runVisualIndexJobNow(state, window, entryId, processUnindexedOnly, skipCurrentErrors),
   );
+}
+
+function createVisualIndexTaskEntry(
+  state: AppState,
+  processUnindexedOnly: boolean,
+): VisualIndexTaskSnapshot {
+  const id = `visual-index-${taskId()}`;
+  const snapshot: VisualIndexTaskSnapshot = {
+    id,
+    status: "queued",
+    total: 0,
+    processed: 0,
+    indexedCount: 0,
+    failureCount: 0,
+    skippedCount: 0,
+    currentFileId: null,
+    currentFileName: null,
+    processUnindexedOnly,
+  };
+  state.visualIndexTasks.set(id, { snapshot, cancelled: false });
+  return snapshot;
+}
+
+async function runVisualIndexTaskEntry(
+  state: AppState,
+  window: BrowserWindow | null,
+  id: string,
+  processUnindexedOnly: boolean,
+  skipCurrentErrors = false,
+): Promise<void> {
+  try {
+    await runVisualIndexJob(state, window, id, processUnindexedOnly, skipCurrentErrors);
+  } catch (error) {
+    const entry = state.visualIndexTasks.get(id);
+    if (!entry) {
+      return;
+    }
+    entry.snapshot.status = "failed";
+    entry.snapshot.currentFileId = null;
+    entry.snapshot.currentFileName = null;
+    log.error("[visual-search] visual index task failed", error);
+    emit(window, "visual-index-task-updated", id);
+  } finally {
+    const entry = state.visualIndexTasks.get(id);
+    if (entry && isTerminalTaskStatus(entry.snapshot.status)) {
+      scheduleTerminalTaskCleanup(state.visualIndexTasks, id);
+    }
+  }
 }
 
 async function runVisualIndexJobNow(
@@ -437,38 +487,8 @@ export async function startVisualIndexTask(
   window: BrowserWindow | null,
   processUnindexedOnly: boolean,
 ): Promise<VisualIndexTaskSnapshot> {
-  const id = `visual-index-${taskId()}`;
-  const snapshot: VisualIndexTaskSnapshot = {
-    id,
-    status: "queued",
-    total: 0,
-    processed: 0,
-    indexedCount: 0,
-    failureCount: 0,
-    skippedCount: 0,
-    currentFileId: null,
-    currentFileName: null,
-    processUnindexedOnly,
-  };
-  state.visualIndexTasks.set(id, { snapshot, cancelled: false });
-  void runVisualIndexJob(state, window, id, processUnindexedOnly)
-    .catch((error) => {
-      const entry = state.visualIndexTasks.get(id);
-      if (!entry) {
-        return;
-      }
-      entry.snapshot.status = "failed";
-      entry.snapshot.currentFileId = null;
-      entry.snapshot.currentFileName = null;
-      log.error("[visual-search] visual index task failed", error);
-      emit(window, "visual-index-task-updated", id);
-    })
-    .finally(() => {
-      const entry = state.visualIndexTasks.get(id);
-      if (entry && isTerminalTaskStatus(entry.snapshot.status)) {
-        scheduleTerminalTaskCleanup(state.visualIndexTasks, id);
-      }
-    });
-  queueMicrotask(() => emit(window, "visual-index-task-updated", id));
+  const snapshot = createVisualIndexTaskEntry(state, processUnindexedOnly);
+  void runVisualIndexTaskEntry(state, window, snapshot.id, processUnindexedOnly);
+  queueMicrotask(() => emit(window, "visual-index-task-updated", snapshot.id));
   return snapshot;
 }

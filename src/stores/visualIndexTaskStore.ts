@@ -5,7 +5,7 @@ import {
   getVisualIndexTask,
   startVisualIndexTask as startVisualIndexTaskCommand,
 } from "@/services/desktop/files";
-import { getErrorMessage } from "@/services/desktop/core";
+import { getErrorMessage, listenDesktop } from "@/services/desktop/core";
 import {
   TERMINAL_VISUAL_INDEX_TASK_STATUSES,
   type VisualIndexTaskSnapshot,
@@ -18,9 +18,13 @@ const VISUAL_INDEX_TASK_EVENT = "visual-index-task-updated";
 interface VisualIndexTaskStore {
   visualIndexTask: VisualIndexTaskSnapshot | null;
   setVisualIndexTask: (task: VisualIndexTaskSnapshot | null) => void;
+  watchVisualIndexTasks: () => void;
   startVisualIndexTask: (processUnindexedOnly: boolean) => Promise<VisualIndexTaskSnapshot | null>;
   cancelVisualIndexTask: () => Promise<void>;
 }
+
+let isWatchingVisualIndexTasks = false;
+const trackedVisualIndexTaskIds = new Set<string>();
 
 async function finalizeVisualIndexTask(
   task: VisualIndexTaskSnapshot,
@@ -48,6 +52,49 @@ export const useVisualIndexTaskStore = create<VisualIndexTaskStore>((set, get) =
 
   setVisualIndexTask: (task) => set({ visualIndexTask: task }),
 
+  watchVisualIndexTasks: () => {
+    if (isWatchingVisualIndexTasks) {
+      return;
+    }
+    isWatchingVisualIndexTasks = true;
+
+    void listenDesktop<string>(VISUAL_INDEX_TASK_EVENT, (event) => {
+      const taskId = event.payload;
+      if (trackedVisualIndexTaskIds.has(taskId)) {
+        return;
+      }
+
+      const currentTask = get().visualIndexTask;
+      if (currentTask && !TERMINAL_VISUAL_INDEX_TASK_STATUSES.has(currentTask.status)) {
+        return;
+      }
+
+      trackedVisualIndexTaskIds.add(taskId);
+      void getVisualIndexTask(taskId)
+        .then((snapshot) => {
+          set({ visualIndexTask: snapshot });
+          return waitForDesktopTask({
+            eventChannel: VISUAL_INDEX_TASK_EVENT,
+            getSnapshot: getVisualIndexTask,
+            isTerminal: (status) => TERMINAL_VISUAL_INDEX_TASK_STATUSES.has(status),
+            onUpdate: (nextTask) => set({ visualIndexTask: nextTask }),
+            taskId,
+          });
+        })
+        .then((finalTask) =>
+          finalizeVisualIndexTask(finalTask, (nextTask) => set({ visualIndexTask: nextTask })),
+        )
+        .catch(async (error) => {
+          console.error("Failed to track visual index task:", error);
+          set({ visualIndexTask: null });
+          await useSettingsStore.getState().refreshVisualSearchStatus();
+        });
+    }).catch((error) => {
+      isWatchingVisualIndexTasks = false;
+      console.error("Failed to listen visual index tasks:", error);
+    });
+  },
+
   startVisualIndexTask: async (processUnindexedOnly) => {
     const currentTask = get().visualIndexTask;
     if (currentTask && !TERMINAL_VISUAL_INDEX_TASK_STATUSES.has(currentTask.status)) {
@@ -57,7 +104,13 @@ export const useVisualIndexTaskStore = create<VisualIndexTaskStore>((set, get) =
 
     try {
       const task = await startVisualIndexTaskCommand(processUnindexedOnly);
+      const isAlreadyTracked = trackedVisualIndexTaskIds.has(task.id);
+      trackedVisualIndexTaskIds.add(task.id);
       set({ visualIndexTask: task });
+      if (isAlreadyTracked) {
+        return task;
+      }
+
       let runtimeStatusRefreshed = false;
 
       void waitForDesktopTask({
