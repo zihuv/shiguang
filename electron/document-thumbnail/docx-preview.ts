@@ -1,4 +1,5 @@
 import { BrowserWindow, ipcMain, type Rectangle } from "electron";
+import sharp from "sharp";
 
 const DOCX_RENDER_TIMEOUT_MS = 15_000;
 const DOCX_RENDERER_WIDTH = 1200;
@@ -12,8 +13,41 @@ interface DocxRenderResult {
   error?: string;
 }
 
+interface BlankImageStats {
+  min: number;
+  max: number;
+  unique: number;
+}
+
 let docxWindow: BrowserWindow | null = null;
 let docxRenderQueue: Promise<Buffer> = Promise.resolve(Buffer.alloc(0));
+
+export async function getBlankImageStats(buffer: Buffer): Promise<BlankImageStats> {
+  const image = await sharp(buffer)
+    .resize(64, 64, { fit: "inside", withoutEnlargement: true })
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  let min = 255;
+  let max = 0;
+  const values = new Set<number>();
+  for (let index = 0; index + 2 < image.data.length; index += image.info.channels) {
+    const value = Math.round(
+      (image.data[index] + image.data[index + 1] + image.data[index + 2]) / 3,
+    );
+    min = Math.min(min, value);
+    max = Math.max(max, value);
+    values.add(value);
+  }
+
+  return { min, max, unique: values.size };
+}
+
+export async function isVisuallyBlankImage(buffer: Buffer): Promise<boolean> {
+  const stats = await getBlankImageStats(buffer);
+  return stats.max - stats.min < 8 && stats.unique <= 8;
+}
 
 function createDocxRendererHtml(): string {
   return `<!doctype html>
@@ -182,7 +216,11 @@ async function renderDocxPreviewThumbnailPngBufferNow(buffer: Buffer): Promise<B
   if (screenshot.isEmpty()) {
     throw new Error("DOCX render produced an empty screenshot");
   }
-  return screenshot.toPNG();
+  const png = screenshot.toPNG();
+  if (await isVisuallyBlankImage(png)) {
+    throw new Error("DOCX render produced a blank screenshot");
+  }
+  return png;
 }
 
 export function isHighFidelityDocxThumbnailExt(ext: string): boolean {

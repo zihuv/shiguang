@@ -6,6 +6,7 @@ import {
   isHighFidelityDocxThumbnailExt,
   renderDocumentPageThumbnail,
 } from "../document-thumbnail";
+import { isVisuallyBlankImage } from "../document-thumbnail/docx-preview";
 import { extractWordBinaryTextFromStreams } from "../document-thumbnail/doc-binary";
 import { readZipEntry } from "../document-thumbnail/zip";
 
@@ -223,5 +224,29 @@ describe("document thumbnails", () => {
     expect(thumbnail.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
     expect(metadata.height).toBe(256);
     expect(metadata.width).toBeGreaterThan(120);
+  });
+
+  it("detects visually blank docx renderer screenshots", async () => {
+    const blank = await sharp({
+      create: {
+        width: 64,
+        height: 64,
+        channels: 3,
+        background: "#f2f2f2",
+      },
+    })
+      .png()
+      .toBuffer();
+    const content = renderDocumentPageThumbnail(
+      {
+        ext: "docx",
+        fileName: "lesson.docx",
+        blocks: [{ kind: "heading", text: "勾股定理" }],
+      },
+      { maxEdge: 256 },
+    );
+
+    expect(await isVisuallyBlankImage(blank)).toBe(true);
+    expect(await isVisuallyBlankImage(content)).toBe(false);
   });
 });

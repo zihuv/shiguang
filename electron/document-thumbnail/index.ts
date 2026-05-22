@@ -2,6 +2,7 @@ import path from "node:path";
 import { promises as fs } from "node:fs";
 import {
   isHighFidelityDocxThumbnailExt,
+  isVisuallyBlankImage,
   renderDocxPreviewThumbnailPngBuffer,
 } from "./docx-preview";
 import { extractDocumentPage } from "./extractors";
@@ -43,4 +44,5 @@ export async function buildDocumentThumbnailPngBuffer(
 
 export { extractDocumentPage, renderDocumentPageThumbnail };
 export { isHighFidelityDocxThumbnailExt };
+export { isVisuallyBlankImage };
 export type { DocumentBlock, DocumentPageModel } from "./model";

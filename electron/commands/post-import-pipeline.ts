@@ -15,7 +15,11 @@ import {
   computeVisualContentHash,
   extractColorDistributionFromInput,
 } from "../media";
-import { hasThumbnailCachePath, getOrCreateThumbnail } from "../storage";
+import {
+  getOrCreateThumbnail,
+  hasThumbnailCachePath,
+  removeBlankDocxThumbnailCache,
+} from "../storage";
 import { decideThumbnailPlan } from "../thumbnail";
 import type { AppState, FileRecord } from "../types";
 import { emit } from "./common";
@@ -91,7 +95,9 @@ export async function ensureThumbnailForFile(
     maxEdge: options.maxEdge,
   });
   if (existingThumbnailPath) {
-    return existingThumbnailPath;
+    if (!(await removeBlankDocxThumbnailCache(file.ext, existingThumbnailPath))) {
+      return existingThumbnailPath;
+    }
   }
 
   if (thumbnailPlan.runtime === "renderer") {

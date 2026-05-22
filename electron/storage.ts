@@ -15,7 +15,12 @@ import {
   THUMBNAIL_MAX_EDGE,
   THUMBNAIL_WEBP_QUALITY,
 } from "./thumbnail";
-import { buildDocumentThumbnailPngBuffer, isDocumentThumbnailExt } from "./document-thumbnail";
+import {
+  buildDocumentThumbnailPngBuffer,
+  isDocumentThumbnailExt,
+  isHighFidelityDocxThumbnailExt,
+  isVisuallyBlankImage,
+} from "./document-thumbnail";
 import { getDefaultLibraryDirName } from "./app/environment";
 
 const LIBRARY_STATE_FILE = "library-state.json";
@@ -388,6 +393,26 @@ export function hasThumbnailCachePath(
   return cachePath;
 }
 
+export async function removeBlankDocxThumbnailCache(
+  ext: string,
+  cachePath: string,
+): Promise<boolean> {
+  if (!isHighFidelityDocxThumbnailExt(ext)) {
+    return false;
+  }
+
+  try {
+    const cachedThumbnail = await fs.readFile(cachePath);
+    if (!(await isVisuallyBlankImage(cachedThumbnail))) {
+      return false;
+    }
+    await fs.rm(cachePath, { force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function getOrCreateThumbnail(
   indexPaths: string[],
   input: {
@@ -409,7 +434,9 @@ export async function getOrCreateThumbnail(
   }
 
   if (fssync.existsSync(thumbnailPath)) {
-    return thumbnailPath;
+    if (!(await removeBlankDocxThumbnailCache(input.ext, thumbnailPath))) {
+      return thumbnailPath;
+    }
   }
 
   const cacheKey = resolveThumbnailCacheKey(path.resolve(input.filePath), identity);

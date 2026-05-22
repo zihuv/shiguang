@@ -292,6 +292,7 @@ export const FILE_FORMAT_DEFINITIONS: readonly FileFormatDefinition[] = [
   codeFormat("scss", undefined, { codeFileOrder: 7 }),
   codeFormat("less", undefined, { codeFileOrder: 8 }),
   codeFormat("md", "text/markdown; charset=utf-8", {
+    group: "document",
     codeFileOrder: 9,
     textPreviewable: true,
     textPreviewOrder: 2,

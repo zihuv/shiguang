@@ -27,6 +27,7 @@ describe("import core helpers", () => {
     const nested = path.join(root, "参考", "网页");
     mkdirSync(nested, { recursive: true });
     writeFileSync(path.join(root, "cover.jpg"), "");
+    writeFileSync(path.join(root, "notes.md"), "# 课堂笔记\n");
     writeFileSync(path.join(nested, "mockup.png"), "");
     writeFileSync(path.join(nested, "raw.cr2"), "");
     writeFileSync(path.join(nested, ".DS_Store"), "");
@@ -36,6 +37,7 @@ describe("import core helpers", () => {
 
     expect(collected).toEqual([
       { abs: path.join(root, "cover.jpg"), relDir: "" },
+      { abs: path.join(root, "notes.md"), relDir: "" },
       { abs: path.join(nested, "mockup.png"), relDir: path.join("参考", "网页") },
     ]);
   });

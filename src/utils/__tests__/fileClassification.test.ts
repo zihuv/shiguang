@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CODE_FILE_EXTENSIONS,
   DIRECT_IMAGE_EXTENSIONS,
+  DOCUMENT_FILE_EXTENSIONS,
   FILE_FORMAT_DEFINITIONS,
   IMAGE_FILE_EXTENSIONS,
   PLAIN_TEXT_FILE_EXTENSIONS,
@@ -113,6 +114,7 @@ describe("fileClassification", () => {
     expect(new Set(extensions).size).toBe(extensions.length);
     expect(IMAGE_FILE_EXTENSIONS).toContain("psd");
     expect(DIRECT_IMAGE_EXTENSIONS).not.toContain("psd");
+    expect(DOCUMENT_FILE_EXTENSIONS).toContain("md");
     expect(TEXT_PREVIEW_EXTENSIONS).toEqual([
       "txt",
       "log",
