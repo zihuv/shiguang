@@ -54,11 +54,19 @@ interface ScreenshotImportOptions {
   folderId?: string | number | null;
   targetFolderResolved?: boolean;
   tabId?: number;
+  sourceUrl?: string;
 }
 
 interface RuntimeMessage {
   action?: string;
   payload?: Record<string, unknown>;
+}
+
+export function resolveScreenshotSourceUrl(
+  explicitSourceUrl: unknown,
+  tabUrl: string | undefined,
+): string {
+  return (typeof explicitSourceUrl === "string" && explicitSourceUrl) || tabUrl || "";
 }
 
 export function initBackground(): void {
@@ -226,6 +234,7 @@ export function initBackground(): void {
       filename: options.filename || "screenshot.png",
       contentType: blob.type || "image/png",
       folderId: target.folderId,
+      sourceUrl: options.sourceUrl,
     });
   }
 
@@ -487,6 +496,7 @@ export function initBackground(): void {
       folderId: options.folderId,
       targetFolderResolved: options.targetFolderResolved === true,
       tabId: tab?.id,
+      sourceUrl: resolveScreenshotSourceUrl(options.sourceUrl, tab?.url),
     });
   }
 
@@ -638,6 +648,7 @@ export function initBackground(): void {
       captureVisibleAndImport(tab, {
         folderId: normalizeOptionalFolderId(payload.folderId ?? payload.folder_id),
         targetFolderResolved: payload.targetFolderResolved === true,
+        sourceUrl: resolveScreenshotSourceUrl(payload.sourceUrl ?? payload.source_url, tab.url),
       })
         .then((result) => sendImportResponse(sendResponse, result))
         .catch((error) => sendResponse({ success: false, error: getErrorMessage(error) }));
@@ -669,6 +680,10 @@ export function initBackground(): void {
         folderId: normalizeOptionalFolderId(payload.folderId ?? payload.folder_id),
         targetFolderResolved: payload.targetFolderResolved === true,
         tabId: _sender.tab?.id,
+        sourceUrl: resolveScreenshotSourceUrl(
+          payload.sourceUrl ?? payload.source_url,
+          _sender.tab?.url,
+        ),
       })
         .then((result) => sendImportResponse(sendResponse, result))
         .catch((error) => sendResponse({ success: false, error: getErrorMessage(error) }));

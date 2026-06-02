@@ -681,6 +681,7 @@ export function createPanel(collector: Collector): CollectorPanel {
         action: "captureVisibleScreenshot",
         payload: {
           folderId: target.folderId,
+          sourceUrl: window.location.href,
           targetFolderResolved: target.resolved,
         },
       });
@@ -1000,6 +1001,7 @@ export function createPanel(collector: Collector): CollectorPanel {
         dataUrl: croppedDataUrl,
         filename,
         folderId: target.folderId,
+        sourceUrl: window.location.href,
         targetFolderResolved: target.resolved,
       },
     });
