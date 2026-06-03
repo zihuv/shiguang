@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { toast } from "sonner";
 import {
   cancelImportTask as cancelImportTaskCommand,
   getImportTask,
@@ -51,6 +52,32 @@ interface ImportStore {
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+export function notifyImportTaskResult(task: ImportTaskSnapshot) {
+  if (task.status === "completed") {
+    toast.success(`已导入 ${task.successCount} 个素材`);
+    return;
+  }
+
+  if (task.status === "completed_with_errors") {
+    if (task.successCount > 0) {
+      toast.error(`导入完成：成功 ${task.successCount} 个素材，失败 ${task.failureCount} 个`);
+      return;
+    }
+
+    toast.error(`导入失败，${task.failureCount} 个素材未导入`);
+    return;
+  }
+
+  if (task.status === "cancelled") {
+    toast.error(`导入已取消：已完成 ${task.processed}/${task.total}`);
+    return;
+  }
+
+  if (task.status === "failed") {
+    toast.error("导入失败");
+  }
+}
+
 function decodeBase64ToBytes(base64Data: string) {
   return Uint8Array.from(atob(base64Data), (char) => char.charCodeAt(0));
 }
@@ -93,6 +120,7 @@ async function finalizeImportTask(
   await useLibraryQueryStore.getState().runCurrentQuery();
   await useFolderStore.getState().loadFolders();
   await useSmartCollectionStore.getState().loadStats();
+  notifyImportTaskResult(task);
   setImportTask(null);
   return results;
 }
