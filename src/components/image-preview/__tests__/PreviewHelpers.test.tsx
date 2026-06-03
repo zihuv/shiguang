@@ -65,7 +65,66 @@ describe("ThumbnailItem", () => {
     getFilePreviewMode.mockReturnValue("image");
   });
 
-  it("loads original image sources for preview strip thumbnails", async () => {
+  it("loads generated thumbnails for large preview strip images", async () => {
+    getGeneratedThumbnailSrc.mockResolvedValue("shiguang-file://asset/photo-thumbnail");
+
+    render(
+      <ThumbnailItem file={createFile({ size: 16 * 1024 * 1024, width: 8192, height: 5464 })} />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("img", { name: "photo.jpg" })).toHaveAttribute(
+        "src",
+        "shiguang-file://asset/photo-thumbnail",
+      ),
+    );
+    expect(getGeneratedThumbnailSrc).toHaveBeenCalledWith(
+      {
+        path: "/library/photo.jpg",
+        ext: "jpg",
+        width: 8192,
+        height: 5464,
+        size: 16 * 1024 * 1024,
+      },
+      768,
+    );
+    expect(getFileSrc).not.toHaveBeenCalled();
+    expect(rememberPreviewImageSrc).not.toHaveBeenCalled();
+  });
+
+  it("keeps cached strip thumbnails visible when remounted", async () => {
+    getGeneratedThumbnailSrc.mockResolvedValue("shiguang-file://asset/cached-thumbnail");
+    const file = createFile({
+      id: 20,
+      path: "/library/cached.jpg",
+      name: "cached.jpg",
+      size: 16 * 1024 * 1024,
+      width: 8192,
+      height: 5464,
+    });
+
+    const { unmount } = render(<ThumbnailItem file={file} />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("img", { name: "cached.jpg" })).toHaveAttribute(
+        "src",
+        "shiguang-file://asset/cached-thumbnail",
+      ),
+    );
+
+    unmount();
+    getGeneratedThumbnailSrc.mockReturnValue(new Promise<string>(() => {}));
+    render(<ThumbnailItem file={file} />);
+
+    expect(screen.getByRole("img", { name: "cached.jpg" })).toHaveAttribute(
+      "src",
+      "shiguang-file://asset/cached-thumbnail",
+    );
+    expect(screen.queryByTestId("file-type-icon")).toBeNull();
+  });
+
+  it("falls back to original image sources when no strip thumbnail is generated", async () => {
+    getGeneratedThumbnailSrc.mockResolvedValue("");
     getFileSrc.mockResolvedValue("shiguang-file://asset/original");
 
     render(<ThumbnailItem file={createFile()} />);
@@ -76,26 +135,40 @@ describe("ThumbnailItem", () => {
         "shiguang-file://asset/original",
       ),
     );
+    expect(getGeneratedThumbnailSrc).toHaveBeenCalled();
     expect(getFileSrc).toHaveBeenCalledWith("/library/photo.jpg");
+    expect(rememberPreviewImageSrc).toHaveBeenCalledWith(
+      "/library/photo.jpg",
+      "shiguang-file://asset/original",
+    );
   });
 
-  it("does not use thumbhash while the original image source is loading", async () => {
+  it("does not use thumbhash while the preview strip image source is loading", async () => {
     let resolvePreviewSrc: (src: string) => void = () => {};
-    getFileSrc.mockReturnValue(
+    getGeneratedThumbnailSrc.mockReturnValue(
       new Promise<string>((resolve) => {
         resolvePreviewSrc = resolve;
       }),
     );
 
-    render(<ThumbnailItem file={createFile({ thumbHash: "thumbhash" })} />);
+    render(
+      <ThumbnailItem
+        file={createFile({
+          id: 30,
+          name: "loading.jpg",
+          path: "/library/loading.jpg",
+          thumbHash: "thumbhash",
+        })}
+      />,
+    );
 
-    expect(screen.queryByRole("img", { name: "photo.jpg" })).toBeNull();
+    expect(screen.queryByRole("img", { name: "loading.jpg" })).toBeNull();
     expect(screen.getByTestId("file-type-icon")).toHaveTextContent("jpg");
 
     resolvePreviewSrc("shiguang-file://asset/original");
 
     await waitFor(() =>
-      expect(screen.getByRole("img", { name: "photo.jpg" })).toHaveAttribute(
+      expect(screen.getByRole("img", { name: "loading.jpg" })).toHaveAttribute(
         "src",
         "shiguang-file://asset/original",
       ),

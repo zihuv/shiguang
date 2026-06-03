@@ -9,8 +9,47 @@ import {
   resolveThumbnailRequestMaxEdge,
 } from "@/utils";
 
+const DETAIL_PREVIEW_SRC_CACHE_LIMIT = 256;
+const detailPreviewSrcCache = new Map<string, string>();
+
+function canCacheDetailPreviewSrc(src: string) {
+  return Boolean(src) && !src.startsWith("blob:") && !src.startsWith("data:");
+}
+
+function getDetailPreviewCacheKey(file: FileItem, maxEdge: number) {
+  return `${file.path}:${file.modifiedAt}:${file.size}:${file.width}x${file.height}:${maxEdge}`;
+}
+
+function getCachedDetailPreviewSrc(cacheKey: string) {
+  const cached = detailPreviewSrcCache.get(cacheKey);
+  if (!cached) {
+    return "";
+  }
+
+  detailPreviewSrcCache.delete(cacheKey);
+  detailPreviewSrcCache.set(cacheKey, cached);
+  return cached;
+}
+
+function cacheDetailPreviewSrc(cacheKey: string, src: string) {
+  if (!canCacheDetailPreviewSrc(src)) {
+    return;
+  }
+
+  detailPreviewSrcCache.delete(cacheKey);
+  detailPreviewSrcCache.set(cacheKey, src);
+
+  while (detailPreviewSrcCache.size > DETAIL_PREVIEW_SRC_CACHE_LIMIT) {
+    const oldestKey = detailPreviewSrcCache.keys().next().value;
+    if (!oldestKey) {
+      break;
+    }
+    detailPreviewSrcCache.delete(oldestKey);
+  }
+}
+
 export function useDetailPreview({ file, width }: { file: FileItem; width: number }) {
-  const [imageSrc, setImageSrc] = useState("");
+  const [imageState, setImageState] = useState({ cacheKey: "", src: "" });
   const [videoPosterSrc, setVideoPosterSrc] = useState("");
   const [textContent, setTextContent] = useState("");
   const [previewError, setPreviewError] = useState(false);
@@ -27,6 +66,8 @@ export function useDetailPreview({ file, width }: { file: FileItem; width: numbe
   const previewThumbnailMaxEdge = resolveThumbnailRequestMaxEdge(previewWidth, previewHeight, {
     devicePixelRatioCap: 2,
   });
+  const previewCacheKey = getDetailPreviewCacheKey(file, previewThumbnailMaxEdge);
+  const imageSrc = imageState.cacheKey === previewCacheKey ? imageState.src : "";
 
   useEffect(() => {
     let mounted = true;
@@ -35,9 +76,8 @@ export function useDetailPreview({ file, width }: { file: FileItem; width: numbe
     setIsImageOriginalLoading(false);
     imageLoadVersionRef.current += 1;
 
-    if (!usesThumbnailPreview) {
-      setImageSrc("");
-    }
+    const cachedPreviewSrc = usesThumbnailPreview ? getCachedDetailPreviewSrc(previewCacheKey) : "";
+    setImageState({ cacheKey: previewCacheKey, src: cachedPreviewSrc });
 
     if (previewType !== "video") {
       setVideoPosterSrc("");
@@ -83,7 +123,8 @@ export function useDetailPreview({ file, width }: { file: FileItem; width: numbe
         }
 
         if (thumbnailSrc) {
-          setImageSrc(thumbnailSrc);
+          cacheDetailPreviewSrc(previewCacheKey, thumbnailSrc);
+          setImageState({ cacheKey: previewCacheKey, src: thumbnailSrc });
           return;
         }
 
@@ -101,7 +142,7 @@ export function useDetailPreview({ file, width }: { file: FileItem; width: numbe
         }
 
         if (originalSrc) {
-          setImageSrc(originalSrc);
+          setImageState({ cacheKey: previewCacheKey, src: originalSrc });
           setIsImageOriginalOpen(true);
         } else {
           setPreviewError(true);
@@ -135,7 +176,7 @@ export function useDetailPreview({ file, width }: { file: FileItem; width: numbe
       if (!mounted) return;
 
       if (src) {
-        setImageSrc(src);
+        setImageState({ cacheKey: previewCacheKey, src });
       } else {
         setPreviewError(true);
       }
@@ -151,6 +192,7 @@ export function useDetailPreview({ file, width }: { file: FileItem; width: numbe
     previewType,
     file.ext,
     previewThumbnailMaxEdge,
+    previewCacheKey,
     thumbnailRefreshVersion,
     usesThumbnailPreview,
   ]);
@@ -190,7 +232,7 @@ export function useDetailPreview({ file, width }: { file: FileItem; width: numbe
       }
 
       if (src) {
-        setImageSrc(src);
+        setImageState({ cacheKey: previewCacheKey, src });
         setIsImageOriginalOpen(true);
       } else {
         setPreviewError(true);

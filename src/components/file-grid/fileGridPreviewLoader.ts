@@ -359,6 +359,12 @@ function getImagePreviewCacheKey(file: FileItem) {
   return `${file.path}:${file.modifiedAt}:${file.size}:image-preview`;
 }
 
+function shouldRememberCardImageSrcForPreview(
+  file: Pick<PreviewSourceFile, "ext" | "height" | "size" | "width">,
+) {
+  return decideThumbnailPlan(file).runtime === "none";
+}
+
 async function loadPreviewImageSrc(file: PreviewSourceFile, maxEdge: number | undefined) {
   const thumbnailPlan = decideThumbnailPlan(file);
   if (thumbnailPlan.runtime === "renderer") {
@@ -534,10 +540,19 @@ export function useLazyImageSrc(
   }, [cacheKey, file, generation, isVisible, maxEdge, refreshVersion]);
 
   useEffect(() => {
-    if (imageState.cacheKey === cacheKey && imageState.src) {
+    if (
+      imageState.cacheKey === cacheKey &&
+      imageState.src &&
+      shouldRememberCardImageSrcForPreview({
+        ext: file.ext,
+        height: file.height,
+        size: file.size,
+        width: file.width,
+      })
+    ) {
       rememberPreviewImageSrc(file.path, imageState.src);
     }
-  }, [cacheKey, file.path, imageState]);
+  }, [cacheKey, file.ext, file.height, file.path, file.size, file.width, imageState]);
 
   const isCurrentImageState = imageState.cacheKey === cacheKey;
 

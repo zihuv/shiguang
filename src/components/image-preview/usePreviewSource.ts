@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { type FileItem } from "@/stores/fileTypes";
+import { decideThumbnailPlan } from "@/lib/thumbnailPolicy";
 import {
   getFilePreviewMode,
   getFileSrc,
@@ -21,6 +22,10 @@ function isGeneratedThumbnailSrc(src: string) {
   } catch {
     return src.toLowerCase().includes(".shiguang/thumbs");
   }
+}
+
+export function shouldPreloadOriginalPreviewImage(file: FileItem) {
+  return !decideThumbnailPlan(file).shouldGenerate;
 }
 
 export function usePreviewSource({
@@ -67,10 +72,14 @@ export function usePreviewSource({
     if (previewType === "image") {
       const rememberedSrc = getRememberedPreviewImageSrc(currentFile.path);
       const rememberedSrcIsPlaceholder = isGeneratedThumbnailSrc(rememberedSrc);
+      const canUseRememberedSrc =
+        rememberedSrc &&
+        !rememberedSrcIsPlaceholder &&
+        shouldPreloadOriginalPreviewImage(currentFile);
 
-      if (rememberedSrc) {
+      if (canUseRememberedSrc) {
         setImageSrc(rememberedSrc);
-        setIsPlaceholderImageSrc(rememberedSrcIsPlaceholder);
+        setIsPlaceholderImageSrc(false);
         setIsLoading(false);
       } else {
         setImageSrc(null);
@@ -84,7 +93,7 @@ export function usePreviewSource({
             setImageSrc(result.src);
             setImageError(false);
             setIsPlaceholderImageSrc(false);
-          } else if (!rememberedSrc) {
+          } else if (!canUseRememberedSrc) {
             setImageError(true);
           }
 
@@ -94,7 +103,7 @@ export function usePreviewSource({
           if (!mounted) return;
 
           console.error("Failed to load preview image:", error);
-          if (!rememberedSrc) {
+          if (!canUseRememberedSrc) {
             setImageError(true);
           }
           setIsLoading(false);
@@ -173,6 +182,10 @@ export function usePreviewSource({
 
     nearbyFiles.forEach((file) => {
       if (getFilePreviewMode(file.ext) !== "image") {
+        return;
+      }
+
+      if (!shouldPreloadOriginalPreviewImage(file)) {
         return;
       }
 

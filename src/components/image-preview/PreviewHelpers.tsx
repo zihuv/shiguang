@@ -15,18 +15,73 @@ function revokeBlobUrl(src: string | null) {
   }
 }
 
+const THUMBNAIL_ITEM_SRC_CACHE_LIMIT = 256;
+type ThumbnailItemSrcCacheValue = {
+  rememberForPreview: boolean;
+  src: string;
+};
+const thumbnailItemSrcCache = new Map<string, ThumbnailItemSrcCacheValue>();
+
+function canCacheThumbnailItemSrc(src: string) {
+  return Boolean(src) && !src.startsWith("blob:") && !src.startsWith("data:");
+}
+
+function getThumbnailItemCacheKey(file: FileItem, maxEdge: number) {
+  return `${file.path}:${file.modifiedAt}:${file.size}:${file.width}x${file.height}:${maxEdge}`;
+}
+
+function getCachedThumbnailItemSrc(cacheKey: string) {
+  const cached = thumbnailItemSrcCache.get(cacheKey);
+  if (!cached) {
+    return null;
+  }
+
+  thumbnailItemSrcCache.delete(cacheKey);
+  thumbnailItemSrcCache.set(cacheKey, cached);
+  return cached;
+}
+
+function cacheThumbnailItemSrc(cacheKey: string, value: ThumbnailItemSrcCacheValue) {
+  if (!canCacheThumbnailItemSrc(value.src)) {
+    return;
+  }
+
+  thumbnailItemSrcCache.delete(cacheKey);
+  thumbnailItemSrcCache.set(cacheKey, value);
+
+  while (thumbnailItemSrcCache.size > THUMBNAIL_ITEM_SRC_CACHE_LIMIT) {
+    const oldestKey = thumbnailItemSrcCache.keys().next().value;
+    if (!oldestKey) {
+      break;
+    }
+    thumbnailItemSrcCache.delete(oldestKey);
+  }
+}
+
 export function ThumbnailItem({ file }: { file: FileItem }) {
   const { path, ext } = file;
-  const [src, setSrc] = useState<string | null>(null);
-  const srcRef = useRef<string | null>(null);
   const previewType = getFilePreviewMode(ext);
   const thumbnailMaxEdge = resolveThumbnailRequestMaxEdge(56, 56, { devicePixelRatioCap: 2 });
+  const cacheKey = getThumbnailItemCacheKey(file, thumbnailMaxEdge);
+  const [imageState, setImageState] = useState<{ cacheKey: string; src: string | null }>(() => {
+    const cached = getCachedThumbnailItemSrc(cacheKey);
+    return { cacheKey, src: cached?.src ?? null };
+  });
+  const src = imageState.cacheKey === cacheKey ? imageState.src : null;
+  const srcRef = useRef<string | null>(src);
 
   useEffect(() => {
     let mounted = true;
-    revokeBlobUrl(srcRef.current);
-    srcRef.current = null;
-    setSrc(null);
+    const cached = getCachedThumbnailItemSrc(cacheKey);
+    if (cached) {
+      revokeBlobUrl(srcRef.current);
+      srcRef.current = cached.src;
+      setImageState({ cacheKey, src: cached.src });
+    } else {
+      revokeBlobUrl(srcRef.current);
+      srcRef.current = null;
+      setImageState({ cacheKey, src: null });
+    }
 
     if (previewType !== "image" && previewType !== "thumbnail" && previewType !== "video") {
       return () => {
@@ -34,9 +89,23 @@ export function ThumbnailItem({ file }: { file: FileItem }) {
       };
     }
 
-    const thumbnailSrcPromise =
+    const thumbnailSrcPromise: Promise<{ rememberForPreview: boolean; src: string }> =
       previewType === "image"
-        ? getFileSrc(path)
+        ? getGeneratedThumbnailSrc(
+            {
+              path: file.path,
+              ext: file.ext,
+              width: file.width,
+              height: file.height,
+              size: file.size,
+            },
+            thumbnailMaxEdge,
+          ).then(async (generatedSrc) => {
+            if (generatedSrc) {
+              return { rememberForPreview: false, src: generatedSrc };
+            }
+            return { rememberForPreview: true, src: await getFileSrc(path) };
+          })
         : getGeneratedThumbnailSrc(
             {
               path: file.path,
@@ -46,9 +115,9 @@ export function ThumbnailItem({ file }: { file: FileItem }) {
               size: file.size,
             },
             thumbnailMaxEdge,
-          );
+          ).then((generatedSrc) => ({ rememberForPreview: false, src: generatedSrc }));
 
-    thumbnailSrcPromise.then((imageSrc) => {
+    thumbnailSrcPromise.then(({ rememberForPreview, src: imageSrc }) => {
       if (!mounted) {
         revokeBlobUrl(imageSrc);
         return;
@@ -60,7 +129,11 @@ export function ThumbnailItem({ file }: { file: FileItem }) {
 
       revokeBlobUrl(srcRef.current);
       srcRef.current = imageSrc;
-      setSrc(imageSrc);
+      cacheThumbnailItemSrc(cacheKey, { rememberForPreview, src: imageSrc });
+      if (rememberForPreview) {
+        rememberPreviewImageSrc(path, imageSrc);
+      }
+      setImageState({ cacheKey, src: imageSrc });
     });
 
     return () => {
@@ -74,16 +147,11 @@ export function ThumbnailItem({ file }: { file: FileItem }) {
     file.path,
     file.size,
     file.width,
+    cacheKey,
     path,
     previewType,
     thumbnailMaxEdge,
   ]);
-
-  useEffect(() => {
-    if (src) {
-      rememberPreviewImageSrc(path, src);
-    }
-  }, [path, src]);
 
   if (!src || (previewType !== "image" && previewType !== "thumbnail" && previewType !== "video")) {
     return (
