@@ -224,6 +224,7 @@ export interface VisualIndexTaskSnapshot {
   currentFileId?: number | null;
   currentFileName?: string | null;
   processUnindexedOnly: boolean;
+  origin?: "manual" | "auto";
 }
 
 export interface VisualIndexRebuildResult {

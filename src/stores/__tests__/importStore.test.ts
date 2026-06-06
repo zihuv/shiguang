@@ -40,15 +40,14 @@ describe("notifyImportTaskResult", () => {
     toastSuccess.mockReset();
   });
 
-  it("shows one success summary after all files import", () => {
+  it("stays quiet after all files import", () => {
     notifyImportTaskResult(createImportTaskSnapshot());
 
-    expect(toastSuccess).toHaveBeenCalledTimes(1);
-    expect(toastSuccess).toHaveBeenCalledWith("已导入 3 个素材");
+    expect(toastSuccess).not.toHaveBeenCalled();
     expect(toastError).not.toHaveBeenCalled();
   });
 
-  it("shows one mixed summary when some files fail", () => {
+  it("shows one failure summary when some files fail", () => {
     notifyImportTaskResult(
       createImportTaskSnapshot({
         status: "completed_with_errors",
@@ -58,7 +57,7 @@ describe("notifyImportTaskResult", () => {
     );
 
     expect(toastError).toHaveBeenCalledTimes(1);
-    expect(toastError).toHaveBeenCalledWith("导入完成：成功 2 个素材，失败 1 个");
+    expect(toastError).toHaveBeenCalledWith("有 1 个素材导入失败");
     expect(toastSuccess).not.toHaveBeenCalled();
   });
 
@@ -72,7 +71,7 @@ describe("notifyImportTaskResult", () => {
     );
 
     expect(toastError).toHaveBeenCalledTimes(1);
-    expect(toastError).toHaveBeenCalledWith("导入失败，3 个素材未导入");
+    expect(toastError).toHaveBeenCalledWith("有 3 个素材导入失败");
     expect(toastSuccess).not.toHaveBeenCalled();
   });
 });

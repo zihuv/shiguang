@@ -54,17 +54,11 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function notifyImportTaskResult(task: ImportTaskSnapshot) {
   if (task.status === "completed") {
-    toast.success(`已导入 ${task.successCount} 个素材`);
     return;
   }
 
   if (task.status === "completed_with_errors") {
-    if (task.successCount > 0) {
-      toast.error(`导入完成：成功 ${task.successCount} 个素材，失败 ${task.failureCount} 个`);
-      return;
-    }
-
-    toast.error(`导入失败，${task.failureCount} 个素材未导入`);
+    toast.error(`有 ${task.failureCount} 个素材导入失败`);
     return;
   }
 

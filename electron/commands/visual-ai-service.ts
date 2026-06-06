@@ -180,7 +180,7 @@ async function runAutoVisualIndexing(state: AppState): Promise<void> {
     }
 
     try {
-      const snapshot = createVisualIndexTaskEntry(state, true);
+      const snapshot = createVisualIndexTaskEntry(state, true, "auto");
       emit(window, "visual-index-task-updated", snapshot.id);
       await runVisualIndexTaskEntry(state, window, snapshot.id, true, true);
     } catch (error) {
@@ -270,6 +270,7 @@ export async function runVisualIndexJob(
 function createVisualIndexTaskEntry(
   state: AppState,
   processUnindexedOnly: boolean,
+  origin: VisualIndexTaskSnapshot["origin"] = "manual",
 ): VisualIndexTaskSnapshot {
   const id = `visual-index-${taskId()}`;
   const snapshot: VisualIndexTaskSnapshot = {
@@ -283,6 +284,7 @@ function createVisualIndexTaskEntry(
     currentFileId: null,
     currentFileName: null,
     processUnindexedOnly,
+    origin,
   };
   state.visualIndexTasks.set(id, { snapshot, cancelled: false });
   return snapshot;
@@ -487,7 +489,7 @@ export async function startVisualIndexTask(
   window: BrowserWindow | null,
   processUnindexedOnly: boolean,
 ): Promise<VisualIndexTaskSnapshot> {
-  const snapshot = createVisualIndexTaskEntry(state, processUnindexedOnly);
+  const snapshot = createVisualIndexTaskEntry(state, processUnindexedOnly, "manual");
   void runVisualIndexTaskEntry(state, window, snapshot.id, processUnindexedOnly);
   queueMicrotask(() => emit(window, "visual-index-task-updated", snapshot.id));
   return snapshot;

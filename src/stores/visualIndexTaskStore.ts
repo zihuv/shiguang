@@ -26,23 +26,30 @@ interface VisualIndexTaskStore {
 let isWatchingVisualIndexTasks = false;
 const trackedVisualIndexTaskIds = new Set<string>();
 
-async function finalizeVisualIndexTask(
-  task: VisualIndexTaskSnapshot,
-  setVisualIndexTask: (task: VisualIndexTaskSnapshot | null) => void,
-) {
-  await useSettingsStore.getState().refreshVisualSearchStatus();
+export function notifyVisualIndexTaskResult(task: VisualIndexTaskSnapshot) {
+  if (task.origin === "auto") {
+    return;
+  }
 
   const taskLabel = task.processUnindexedOnly ? "未索引图片处理" : "视觉索引";
 
   if (task.status === "completed") {
-    toast.success(`${taskLabel}完成：成功 ${task.indexedCount} 张`);
+    return;
   } else if (task.status === "completed_with_errors") {
-    toast.error(`${taskLabel}完成：成功 ${task.indexedCount} 张，失败 ${task.failureCount} 张`);
+    toast.error(`${taskLabel}有 ${task.failureCount} 张处理失败`);
   } else if (task.status === "cancelled") {
     toast.error(`${taskLabel}已取消：已完成 ${task.processed}/${task.total}`);
   } else if (task.status === "failed") {
     toast.error(`${taskLabel}失败`);
   }
+}
+
+async function finalizeVisualIndexTask(
+  task: VisualIndexTaskSnapshot,
+  setVisualIndexTask: (task: VisualIndexTaskSnapshot | null) => void,
+) {
+  await useSettingsStore.getState().refreshVisualSearchStatus();
+  notifyVisualIndexTaskResult(task);
 
   setVisualIndexTask(null);
 }
