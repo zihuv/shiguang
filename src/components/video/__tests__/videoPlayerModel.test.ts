@@ -5,9 +5,14 @@ import {
   formatVideoTime,
   getProgressPercent,
   parseVideoTimeInput,
+  PLAYBACK_RATES,
 } from "@/components/video/videoPlayerModel";
 
 describe("videoPlayerModel", () => {
+  it("provides the supported playback rates", () => {
+    expect(PLAYBACK_RATES).toEqual([0.5, 0.75, 1, 1.25, 1.5, 2, 2.25, 2.5, 3]);
+  });
+
   it("formats video times for short and long durations", () => {
     expect(formatVideoTime(Number.NaN)).toBe("0:00");
     expect(formatVideoTime(-1)).toBe("0:00");

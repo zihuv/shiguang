@@ -1,6 +1,6 @@
 export const SKIP_SECONDS = 5;
 export const HOVER_PREVIEW_DELAY_MS = 32;
-export const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
+export const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.25, 2.5, 3];
 
 export function formatVideoTime(value: number) {
   if (!Number.isFinite(value) || value < 0) {
