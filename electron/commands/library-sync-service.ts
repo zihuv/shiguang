@@ -5,10 +5,13 @@ import fs from "node:fs/promises";
 import fssync from "node:fs";
 import path from "node:path";
 import {
+  deleteFolderRecord,
   filePathsInDir,
   findMoveCandidateByContentHash,
+  getAllFolders,
   getFileById,
   getFileByPath,
+  getFolderByPath,
   getIndexPaths,
   getOrCreateFolder,
   isFileUnchanged,
@@ -17,13 +20,14 @@ import {
   updateFileColorData,
   updateFilePathAndFolder,
   upsertFile,
+  relocateFolderSubtree,
 } from "../database";
 import {
   detectExtensionFromPath,
   isBlockedUnsupportedExtension,
   isScanSupportedExtension,
 } from "../media";
-import { isHiddenName } from "../path-utils";
+import { isHiddenName, pathHasPrefix } from "../path-utils";
 import { removeThumbnailForFile } from "../storage";
 import {
   classifyExistingPathSync,
@@ -46,6 +50,9 @@ let librarySyncScanTimer: NodeJS.Timeout | null = null;
 let lastLibrarySyncScanAt = 0;
 const pendingLibraryUnlinks = new Map<string, NodeJS.Timeout>();
 const pendingLibraryChanges = new Map<string, NodeJS.Timeout>();
+const pendingDirectoryUnlinks = new Map<string, NodeJS.Timeout>();
+const directoryIdentityByPath = new Map<string, string>();
+const directoryPathByIdentity = new Map<string, string>();
 
 interface LibrarySyncSummary {
   added: number;
@@ -124,7 +131,115 @@ export async function scanFoldersOnly(state: AppState, rootPath: string): Promis
   }
 
   await visit(rootPath, 0);
+  pruneMissingEmptyFolders(state, rootPath);
   return count;
+}
+
+function directoryIdentity(stats: fssync.Stats): string {
+  return `${stats.dev}:${stats.ino}`;
+}
+
+function rememberDirectory(dirPath: string, stats: fssync.Stats): void {
+  const identity = directoryIdentity(stats);
+  const previousPath = directoryPathByIdentity.get(identity);
+  if (previousPath && previousPath !== dirPath) {
+    directoryIdentityByPath.delete(previousPath);
+  }
+  directoryIdentityByPath.set(dirPath, identity);
+  directoryPathByIdentity.set(identity, dirPath);
+}
+
+async function seedDirectoryIdentities(rootPaths: string[]): Promise<void> {
+  async function visit(dirPath: string): Promise<void> {
+    let stats: fssync.Stats;
+    let entries: fssync.Dirent[];
+    try {
+      [stats, entries] = await Promise.all([
+        fs.stat(dirPath),
+        fs.readdir(dirPath, { withFileTypes: true }),
+      ]);
+    } catch {
+      return;
+    }
+    rememberDirectory(dirPath, stats);
+    await Promise.all(
+      entries
+        .filter((entry) => entry.isDirectory() && !isHiddenName(entry.name))
+        .map((entry) => visit(path.join(dirPath, entry.name))),
+    );
+  }
+
+  await Promise.all(rootPaths.map(visit));
+}
+
+function pruneMissingEmptyFolders(state: AppState, rootPath: string): void {
+  const candidates = getAllFolders(state.db)
+    .filter((folder) => folder.path !== rootPath && pathHasPrefix(folder.path, rootPath))
+    .sort((left, right) => right.path.length - left.path.length);
+
+  for (const folder of candidates) {
+    if (fssync.existsSync(folder.path) || filePathsInDir(state.db, folder.path).size > 0) {
+      continue;
+    }
+    deleteFolderRecord(state.db, folder.id);
+  }
+}
+
+async function syncAddedDirectory(
+  state: AppState,
+  getWindow: GetWindow,
+  dirPath: string,
+): Promise<void> {
+  if (isHiddenName(path.basename(dirPath))) {
+    return;
+  }
+
+  let stats: fssync.Stats;
+  try {
+    stats = await fs.stat(dirPath);
+  } catch {
+    return;
+  }
+  const identity = directoryIdentity(stats);
+  const previousPath = directoryPathByIdentity.get(identity);
+  const indexPaths = getIndexPaths(state.db);
+  const parentPath = path.dirname(dirPath);
+  const parentId = getFolderByPath(state.db, parentPath)?.id ?? null;
+
+  if (
+    previousPath &&
+    previousPath !== dirPath &&
+    !fssync.existsSync(previousPath) &&
+    relocateFolderSubtree(state.db, previousPath, dirPath, parentId)
+  ) {
+    const pendingUnlink = pendingDirectoryUnlinks.get(previousPath);
+    if (pendingUnlink) {
+      clearTimeout(pendingUnlink);
+      pendingDirectoryUnlinks.delete(previousPath);
+    }
+    directoryIdentityByPath.delete(previousPath);
+  } else {
+    getOrCreateFolder(state.db, dirPath, indexPaths);
+  }
+
+  rememberDirectory(dirPath, stats);
+  recordLibrarySyncChange(getWindow(), "updated");
+}
+
+function forgetRemovedDirectory(dirPath: string): void {
+  const existingTimer = pendingDirectoryUnlinks.get(dirPath);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+  const timer = setTimeout(() => {
+    pendingDirectoryUnlinks.delete(dirPath);
+    const identity = directoryIdentityByPath.get(dirPath);
+    directoryIdentityByPath.delete(dirPath);
+    if (identity && directoryPathByIdentity.get(identity) === dirPath) {
+      directoryPathByIdentity.delete(identity);
+    }
+  }, 3000);
+  pendingDirectoryUnlinks.set(dirPath, timer);
 }
 
 async function waitForStableFile(filePath: string): Promise<boolean> {
@@ -270,6 +385,7 @@ export async function scanIndexPath(
       if (isHiddenName(entry.name)) continue;
       const candidate = path.join(dir, entry.name);
       if (entry.isDirectory()) {
+        getOrCreateFolder(state.db, candidate, getIndexPaths(state.db));
         await visit(candidate);
         continue;
       }
@@ -298,6 +414,7 @@ export async function scanIndexPath(
       recordLibrarySyncChange(window, "removed");
     }
   }
+  pruneMissingEmptyFolders(state, rootPath);
   return summary.added;
 }
 
@@ -419,19 +536,21 @@ export function startLibrarySyncService(state: AppState, getWindow: GetWindow): 
     ignored: (candidate) => isHiddenName(path.basename(candidate)),
   });
 
+  void seedDirectoryIdentities(indexPaths);
+
   libraryWatcher
     .on("add", (filePath) => queueLibraryPathSync(state, getWindow, filePath))
     .on("change", (filePath) => queueLibraryPathSync(state, getWindow, filePath))
     .on("unlink", (filePath) => queueLibraryPathMissing(state, getWindow, filePath))
     .on("addDir", (dirPath) => {
-      if (isHiddenName(path.basename(dirPath))) {
-        return;
-      }
-      const indexPaths = getIndexPaths(state.db);
-      getOrCreateFolder(state.db, dirPath, indexPaths);
-      recordLibrarySyncChange(getWindow(), "updated");
+      void syncAddedDirectory(state, getWindow, dirPath).catch((error) => {
+        pendingLibrarySyncSummary.errorCount += 1;
+        recordLibrarySyncChange(getWindow(), "skipped");
+        log.warn("[library-sync] directory sync failed", error);
+      });
     })
     .on("unlinkDir", (dirPath) => {
+      forgetRemovedDirectory(dirPath);
       for (const file of filePathsInDir(state.db, dirPath)) {
         queueLibraryPathMissing(state, getWindow, file);
       }

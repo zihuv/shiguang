@@ -213,10 +213,30 @@ export async function renameFolder(db: Database.Database, id: number, name: stri
   if (fssync.existsSync(oldPath)) {
     await moveDirectoryWithFallback(oldPath, newPath);
   }
+  relocateFolderSubtree(db, oldPath, newPath, folder.parent_id);
+}
+
+export function relocateFolderSubtree(
+  db: Database.Database,
+  oldPath: string,
+  newPath: string,
+  parentId: number | null,
+): boolean {
+  const folder = getFolderByPath(db, oldPath);
+  if (!folder) {
+    return false;
+  }
+
   getDrizzleDb(db).transaction((tx) => {
     tx.update(folders)
-      .set({ name, path: newPath, normalizedPath: normalizeStoredPath(newPath) })
-      .where(eq(folders.id, id))
+      .set({
+        name: path.basename(newPath),
+        parentId,
+        path: newPath,
+        normalizedPath: normalizeStoredPath(newPath),
+        updatedAt: currentTimestamp(),
+      })
+      .where(eq(folders.id, folder.id))
       .run();
     const oldPathKey = normalizeStoredPath(oldPath);
     const subfolders = tx
@@ -224,7 +244,7 @@ export async function renameFolder(db: Database.Database, id: number, name: stri
       .from(folders)
       .where(
         and(
-          ne(folders.id, id),
+          ne(folders.id, folder.id),
           or(
             eq(folders.normalizedPath, oldPathKey),
             like(folders.normalizedPath, `${oldPathKey}/%`),
@@ -233,7 +253,7 @@ export async function renameFolder(db: Database.Database, id: number, name: stri
       )
       .all();
     for (const subfolder of subfolders) {
-      if (subfolder.id === id || !pathHasPrefix(subfolder.path, oldPath)) continue;
+      if (subfolder.id === folder.id || !pathHasPrefix(subfolder.path, oldPath)) continue;
       const replaced = replacePathPrefix(subfolder.path, oldPath, newPath);
       if (replaced)
         tx.update(folders)
@@ -258,6 +278,7 @@ export async function renameFolder(db: Database.Database, id: number, name: stri
           .run();
     }
   });
+  return true;
 }
 
 export async function moveFolderRecord(

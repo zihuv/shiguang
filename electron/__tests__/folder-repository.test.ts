@@ -114,4 +114,50 @@ describe("folder repository", () => {
 
     db.close();
   });
+
+  it("relocates an externally renamed folder without creating duplicate records", async () => {
+    const Database = await loadDatabaseConstructor();
+    if (!Database) {
+      return;
+    }
+
+    const { migrateDatabase } = await import("../database/migrations");
+    const { createFolderRecord, getFolderById, normalizeStoredPath, relocateFolderSubtree } =
+      await import("../database");
+    const db = new Database(":memory:");
+    migrateDatabase(db, ":memory:");
+
+    const oldPath = "/library/未命名文件夹";
+    const newPath = "/library/旅行";
+    const rootId = createFolderRecord(db, oldPath, "未命名文件夹", null);
+    const childId = createFolderRecord(db, `${oldPath}/精选`, "精选", rootId);
+    const timestamp = "2026-06-24T00:00:00.000Z";
+    db.prepare(
+      `INSERT INTO files (
+        path, normalized_path, name, ext, size, width, height, folder_id, created_at,
+        modified_at, imported_at, rating, description, source_url, dominant_color,
+        color_distribution, thumb_hash, sync_id, fs_modified_at, updated_at
+      ) VALUES (?, ?, 'a.png', 'png', 1, 1, 1, ?, ?, ?, ?, 0, '', '', '', '[]', '',
+        'file_external_rename', ?, ?)`,
+    ).run(
+      `${oldPath}/精选/a.png`,
+      normalizeStoredPath(`${oldPath}/精选/a.png`),
+      childId,
+      timestamp,
+      timestamp,
+      timestamp,
+      timestamp,
+      timestamp,
+    );
+
+    expect(relocateFolderSubtree(db, oldPath, newPath, null)).toBe(true);
+    expect(getFolderById(db, rootId)).toMatchObject({ name: "旅行", path: newPath });
+    expect(getFolderById(db, childId)).toMatchObject({ path: `${newPath}/精选` });
+    expect(db.prepare("SELECT COUNT(*) AS count FROM folders").get()).toEqual({ count: 2 });
+    expect(db.prepare("SELECT path FROM files").get()).toEqual({
+      path: `${newPath}/精选/a.png`,
+    });
+
+    db.close();
+  });
 });
