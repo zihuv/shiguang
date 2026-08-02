@@ -735,6 +735,7 @@ export function VideoPlayer({
       {isHoverPreviewMounted && (
         <video
           ref={hoverVideoRef}
+          crossOrigin="anonymous"
           src={src}
           muted
           playsInline

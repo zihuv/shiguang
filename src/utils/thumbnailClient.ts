@@ -41,7 +41,7 @@ function resolveShortEdgeScale(
 
 async function renderVideoThumbnailDataUrl(
   path: string,
-  _maxEdge: number = THUMBNAIL_MAX_EDGE,
+  maxEdge: number = THUMBNAIL_MAX_EDGE,
 ): Promise<string> {
   const fileSrc = await getFileSrc(path);
   if (!fileSrc) {
@@ -80,7 +80,7 @@ async function renderVideoThumbnailDataUrl(
         return;
       }
 
-      const scale = resolveShortEdgeScale(video.videoWidth, video.videoHeight);
+      const scale = resolveShortEdgeScale(video.videoWidth, video.videoHeight, maxEdge);
       const canvas = document.createElement("canvas");
       canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
       canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
@@ -121,6 +121,7 @@ async function renderVideoThumbnailDataUrl(
     video.preload = "metadata";
     video.muted = true;
     video.playsInline = true;
+    video.crossOrigin = "anonymous";
     video.addEventListener("loadedmetadata", seekToCapturePoint, { once: true });
     video.addEventListener("error", () => finish(""), { once: true });
     timeoutId = setTimeout(() => finish(""), 10000);

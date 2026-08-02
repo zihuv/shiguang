@@ -26,7 +26,7 @@ export function registerFileProtocolPrivileges(): void {
         standard: true,
         secure: true,
         supportFetchAPI: true,
-        corsEnabled: false,
+        corsEnabled: true,
         stream: true,
       },
     },
@@ -46,6 +46,15 @@ export function assetToUrl(filePath: string): string {
 
 function contentTypeForPath(filePath: string): string {
   return getMimeTypeForExtension(path.extname(filePath));
+}
+
+export function createFileResponseHeaders(filePath: string): Headers {
+  return new Headers({
+    "accept-ranges": "bytes",
+    "access-control-allow-origin": "*",
+    "cache-control": "public, max-age=31536000",
+    "content-type": contentTypeForPath(filePath),
+  });
 }
 
 export function parseByteRange(rangeHeader: string | null, fileSize: number): ByteRange | null {
@@ -96,11 +105,7 @@ export function parseByteRange(rangeHeader: string | null, fileSize: number): By
 async function buildFileResponse(filePath: string, request: Request): Promise<Response> {
   const stat = await fsp.stat(filePath);
   const range = parseByteRange(request.headers.get("range"), stat.size);
-  const headers = new Headers({
-    "accept-ranges": "bytes",
-    "cache-control": "public, max-age=31536000",
-    "content-type": contentTypeForPath(filePath),
-  });
+  const headers = createFileResponseHeaders(filePath);
 
   if (request.headers.has("range") && !range) {
     headers.set("content-range", `bytes */${stat.size}`);

@@ -7,9 +7,25 @@ vi.mock("electron", () => ({
   },
 }));
 
-const { parseByteRange } = await import("../app/file-protocol");
+const { createFileResponseHeaders, parseByteRange, registerFileProtocolPrivileges } =
+  await import("../app/file-protocol");
 
 describe("file protocol range support", () => {
+  it("enables CORS for canvas-safe media access", async () => {
+    registerFileProtocolPrivileges();
+
+    const electron = await import("electron");
+    expect(electron.protocol.registerSchemesAsPrivileged).toHaveBeenCalledWith([
+      expect.objectContaining({
+        scheme: "shiguang-file",
+        privileges: expect.objectContaining({ corsEnabled: true }),
+      }),
+    ]);
+    expect(createFileResponseHeaders("/library/clip.mp4").get("access-control-allow-origin")).toBe(
+      "*",
+    );
+  });
+
   it("parses byte ranges for media seeking", () => {
     expect(parseByteRange("bytes=0-99", 1000)).toEqual({ start: 0, end: 99 });
     expect(parseByteRange("bytes=500-", 1000)).toEqual({ start: 500, end: 999 });
