@@ -3,13 +3,16 @@ node_modules
 .pnpm-store
 __pycache__
 .codex
-.claude
+
+# Claude Code
+.claude/settings.local.json
+.claude/**/__pycache__/
 
 # Build output
 dist
 build
 out
-release
+/release
 extensions/shiguang-collector/.output
 extensions/shiguang-collector/.wxt
 *.tsbuildinfo
