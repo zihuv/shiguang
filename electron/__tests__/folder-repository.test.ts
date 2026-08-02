@@ -115,6 +115,64 @@ describe("folder repository", () => {
     db.close();
   });
 
+  it("counts only present files under a directory for folder pruning", async () => {
+    const Database = await loadDatabaseConstructor();
+    if (!Database) {
+      return;
+    }
+
+    const { migrateDatabase } = await import("../database/migrations");
+    const { countPresentFilesInDir, createFolderRecord, normalizeStoredPath } =
+      await import("../database");
+    const db = new Database(":memory:");
+    migrateDatabase(db, ":memory:");
+
+    const timestamp = "2026-07-01T00:00:00.000Z";
+    const rootId = createFolderRecord(db, "/library/root", "root", null, false, 0);
+    const childId = createFolderRecord(db, "/library/root/child", "child", rootId, false, 0);
+
+    const insertFile = (
+      filePath: string,
+      folderId: number,
+      deletedAt: string | null = null,
+      missingAt: string | null = null,
+    ) => {
+      db.prepare(
+        `INSERT INTO files (
+          path, normalized_path, name, ext, size, width, height, folder_id, created_at,
+          modified_at, imported_at, rating, description, source_url, dominant_color,
+          color_distribution, thumb_hash, deleted_at, missing_at, sync_id, content_hash,
+          fs_modified_at, updated_at
+        ) VALUES (?, ?, ?, 'png', 1, 1, 1, ?, ?, ?, ?, 0, '', '', '', '[]', '', ?, ?, ?, NULL, ?, ?)`,
+      ).run(
+        filePath,
+        normalizeStoredPath(filePath),
+        filePath.split("/").pop(),
+        folderId,
+        timestamp,
+        timestamp,
+        timestamp,
+        deletedAt,
+        missingAt,
+        `file_${folderId}`,
+        timestamp,
+        timestamp,
+      );
+    };
+
+    insertFile("/library/root/a.png", rootId);
+    insertFile("/library/root/child/b.png", childId);
+    insertFile("/library/root/child/missing.png", childId, null, timestamp);
+    insertFile("/library/root/deleted.png", rootId, timestamp, null);
+    insertFile("/library/other.png", rootId);
+
+    expect(countPresentFilesInDir(db, "/library/root")).toBe(2);
+    expect(countPresentFilesInDir(db, "/library/root/child")).toBe(1);
+    expect(countPresentFilesInDir(db, "/library/other")).toBe(0);
+
+    db.close();
+  });
+
   it("relocates an externally renamed folder without creating duplicate records", async () => {
     const Database = await loadDatabaseConstructor();
     if (!Database) {

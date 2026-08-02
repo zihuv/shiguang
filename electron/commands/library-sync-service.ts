@@ -5,6 +5,8 @@ import fs from "node:fs/promises";
 import fssync from "node:fs";
 import path from "node:path";
 import {
+  clearFilesFolderId,
+  countPresentFilesInDir,
   deleteFolderRecord,
   filePathsInDir,
   findMoveCandidateByContentHash,
@@ -31,6 +33,7 @@ import { isHiddenName, pathHasPrefix } from "../path-utils";
 import { removeThumbnailForFile } from "../storage";
 import {
   classifyExistingPathSync,
+  selectFoldersToPrune,
   shouldUseMoveCandidate,
   type LibrarySyncChangeKind,
 } from "../library-sync-logic";
@@ -173,15 +176,19 @@ async function seedDirectoryIdentities(rootPaths: string[]): Promise<void> {
 }
 
 function pruneMissingEmptyFolders(state: AppState, rootPath: string): void {
-  const candidates = getAllFolders(state.db)
-    .filter((folder) => folder.path !== rootPath && pathHasPrefix(folder.path, rootPath))
-    .sort((left, right) => right.path.length - left.path.length);
-
-  for (const folder of candidates) {
-    if (fssync.existsSync(folder.path) || filePathsInDir(state.db, folder.path).size > 0) {
-      continue;
-    }
-    deleteFolderRecord(state.db, folder.id);
+  const idsToPrune = selectFoldersToPrune({
+    folders: getAllFolders(state.db),
+    rootPath,
+    existsOnDisk: (folderPath) => fssync.existsSync(folderPath),
+    inRenameWindow: (folderPath) => pendingDirectoryUnlinks.has(folderPath),
+    presentFileCount: (folderPath) => countPresentFilesInDir(state.db, folderPath),
+  });
+  if (idsToPrune.length === 0) {
+    return;
+  }
+  clearFilesFolderId(state.db, idsToPrune);
+  for (const id of idsToPrune) {
+    deleteFolderRecord(state.db, id);
   }
 }
 
@@ -226,7 +233,7 @@ async function syncAddedDirectory(
   recordLibrarySyncChange(getWindow(), "updated");
 }
 
-function forgetRemovedDirectory(dirPath: string): void {
+function forgetRemovedDirectory(dirPath: string, onSettled?: () => void): void {
   const existingTimer = pendingDirectoryUnlinks.get(dirPath);
   if (existingTimer) {
     clearTimeout(existingTimer);
@@ -238,6 +245,7 @@ function forgetRemovedDirectory(dirPath: string): void {
     if (identity && directoryPathByIdentity.get(identity) === dirPath) {
       directoryPathByIdentity.delete(identity);
     }
+    onSettled?.();
   }, 3000);
   pendingDirectoryUnlinks.set(dirPath, timer);
 }
@@ -550,10 +558,26 @@ export function startLibrarySyncService(state: AppState, getWindow: GetWindow): 
       });
     })
     .on("unlinkDir", (dirPath) => {
-      forgetRemovedDirectory(dirPath);
-      for (const file of filePathsInDir(state.db, dirPath)) {
-        queueLibraryPathMissing(state, getWindow, file);
-      }
+      forgetRemovedDirectory(dirPath, () => {
+        // 重命名检测窗口（3s）已关闭：补标记磁盘上已消失的文件，并清理
+        // 不再存在于磁盘的文件夹记录，让文件夹树与实际存储保持一致。
+        const indexPath = getIndexPaths(state.db).find((item) => pathHasPrefix(dirPath, item));
+        if (!indexPath) {
+          return;
+        }
+        queueLibrarySyncTask(async () => {
+          let removedCount = 0;
+          for (const file of filePathsInDir(state.db, dirPath)) {
+            if (!fssync.existsSync(file) && markFileMissingByPath(state.db, file)) {
+              removedCount += 1;
+            }
+          }
+          pruneMissingEmptyFolders(state, indexPath);
+          for (let i = 0; i < removedCount; i += 1) {
+            recordLibrarySyncChange(getWindow(), "removed");
+          }
+        });
+      });
       recordLibrarySyncChange(getWindow(), "updated");
     })
     .on("error", (error) => {

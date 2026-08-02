@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyExistingPathSync,
+  selectFoldersToPrune,
   shouldMarkMissing,
   shouldUseMoveCandidate,
 } from "../library-sync-logic";
@@ -74,5 +75,58 @@ describe("library sync decisions", () => {
         existsOnDisk: true,
       }),
     ).toBe(false);
+  });
+});
+
+describe("selectFoldersToPrune", () => {
+  const rootPath = "/library/root";
+  const existsOnDisk = new Set<string>([rootPath, `${rootPath}/exists`]);
+  const inRenameWindow = new Set<string>([`${rootPath}/renaming`]);
+  const presentFileCounts = new Map<string, number>([
+    [`${rootPath}/with-files`, 3],
+    [`${rootPath}/renaming`, 0],
+  ]);
+
+  const run = (folders: Array<{ id: number; path: string; isSystem?: boolean }>) =>
+    selectFoldersToPrune({
+      folders,
+      rootPath,
+      existsOnDisk: (folderPath) => existsOnDisk.has(folderPath),
+      inRenameWindow: (folderPath) => inRenameWindow.has(folderPath),
+      presentFileCount: (folderPath) => presentFileCounts.get(folderPath) ?? 0,
+    });
+
+  it("prunes a folder deleted from disk even when its files only remain as missing records", () => {
+    expect(run([{ id: 1, path: `${rootPath}/gone` }])).toEqual([1]);
+  });
+
+  it("keeps folders that still exist on disk", () => {
+    expect(run([{ id: 2, path: `${rootPath}/exists` }])).toEqual([]);
+  });
+
+  it("keeps folders that still have present files", () => {
+    expect(run([{ id: 3, path: `${rootPath}/with-files` }])).toEqual([]);
+  });
+
+  it("keeps folders inside the rename-detection window", () => {
+    expect(run([{ id: 4, path: `${rootPath}/renaming` }])).toEqual([]);
+  });
+
+  it("keeps app-managed system folders", () => {
+    expect(run([{ id: 5, path: `${rootPath}/system`, isSystem: true }])).toEqual([]);
+  });
+
+  it("never prunes the index root path itself", () => {
+    expect(run([{ id: 6, path: rootPath }])).toEqual([]);
+  });
+
+  it("returns nested folders deepest-first", () => {
+    expect(
+      run([
+        { id: 10, path: `${rootPath}/a` },
+        { id: 11, path: `${rootPath}/a/b` },
+        { id: 12, path: `${rootPath}/a/b/c` },
+      ]),
+    ).toEqual([12, 11, 10]);
   });
 });

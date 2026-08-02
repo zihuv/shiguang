@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import {
   and,
+  count,
   countDistinct,
   desc,
   eq,
@@ -626,6 +627,25 @@ export function filePathsInDir(db: Database.Database, dirPath: string): Set<stri
     )
     .all();
   return new Set(rows.filter((row) => pathHasPrefix(row.path, dirPath)).map((row) => row.path));
+}
+
+export function countPresentFilesInDir(db: Database.Database, dirPath: string): number {
+  const dirPathKey = normalizeStoredPath(dirPath);
+  const row = getDrizzleDb(db)
+    .select({ count: count() })
+    .from(filesTable)
+    .where(
+      and(
+        or(
+          eq(filesTable.normalizedPath, dirPathKey),
+          like(filesTable.normalizedPath, `${dirPathKey}/%`),
+        ),
+        isNull(filesTable.missingAt),
+        isNull(filesTable.deletedAt),
+      ),
+    )
+    .get();
+  return Number(row?.count ?? 0);
 }
 
 export function isFileUnchanged(
